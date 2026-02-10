@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- PWA / Tablet Standalone Mode Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-title" content="TouchTab">
+
+    <title>Tap to Words</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            background-color: #09090b; /* zinc-950 */
+            overscroll-behavior: none;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #18181b; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        @keyframes bounce-custom {
+            0%, 100% { transform: translateY(-25%); animation-timing-function: cubic-bezier(0.8,0,1,1); }
+            50% { transform: none; animation-timing-function: cubic-bezier(0,0,0.2,1); }
+        }
+        .animate-bounce-custom { animation: bounce-custom 1s infinite; }
+
+        @keyframes pulse-record {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .recording-pulse { animation: pulse-record 1.5s infinite ease-in-out; }
+        
+        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+            background: #6366f1; cursor: pointer; margin-top: -4px; 
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 8px; cursor: pointer; background: #27272a; border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="text-white h-screen w-screen flex flex-col overflow-hidden bg-zinc-950">
+
+    <!-- App Container -->
+    <div id="app-container" class="relative w-full h-full flex flex-col transition-transform duration-300 ease-out">
+        
+        <!-- Header -->
+        <header id="header" class="absolute top-0 left-0 w-full p-6 flex justify-end items-center z-40 pointer-events-none transition-opacity duration-300">
+            <div class="relative pointer-events-auto group">
+                <button id="settings-trigger" class="relative p-4 rounded-full transition-all duration-500 ease-out bg-transparent hover:bg-zinc-800/50 header-rotate">
+                    <i data-lucide="settings" id="settings-icon" class="w-6 h-6 text-zinc-600 group-hover:text-zinc-400 transition-colors duration-300"></i>
+                    <svg class="absolute inset-0 w-full h-full -rotate-90 pointer-events-none p-1">
+                        <circle cx="50%" cy="50%" r="20" fill="none" stroke="currentColor" stroke-width="3" class="text-zinc-800"></circle>
+                        <circle id="hold-progress-ring" cx="50%" cy="50%" r="20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="125.6" stroke-dashoffset="125.6" class="text-indigo-500 transition-all duration-75"></circle>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Positioning Overlay -->
+        <div id="positioning-overlay" class="absolute inset-0 z-30 pointer-events-none hidden transition-transform duration-300">
+            <div class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,black,transparent)]"></div>
+            <div class="absolute top-8 left-0 w-full flex justify-center">
+                <div class="bg-indigo-600 text-white px-6 py-3 rounded-full font-bold shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+                    <i data-lucide="move" class="w-5 h-5 animate-pulse"></i>
+                    <span>Drag to Move • Pinch/Scroll to Resize</span>
+                </div>
+            </div>
+            <div class="absolute bottom-8 left-0 w-full flex justify-center gap-4 pointer-events-auto">
+                <button id="reset-pos-btn" class="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 border border-zinc-700">
+                    <i data-lucide="rotate-ccw" class="w-5 h-5"></i> Reset
+                </button>
+                <button id="lock-pos-btn" class="bg-green-600 hover:bg-green-500 text-white px-8 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2">
+                    <i data-lucide="lock" class="w-5 h-5"></i> Lock Positions
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Canvas -->
+        <main id="main-canvas" class="flex-1 relative w-full h-full overflow-hidden z-10 touch-none">
+            <!-- Buttons injected here -->
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 hidden">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-xl transition-opacity" id="settings-backdrop"></div>
+        <div class="relative w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+            <div class="bg-zinc-900 border-b border-zinc-800 shrink-0">
+                <div class="flex justify-between items-center p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+                            <i data-lucide="settings" class="w-5 h-5 text-indigo-400"></i>
+                        </div>
+                        <h2 class="text-lg font-bold text-white">Settings</h2>
+                    </div>
+                    <button id="close-settings-top" class="p-2 hover:bg-zinc-800 rounded-full text-zinc-500"><i data-lucide="x" class="w-6 h-6"></i></button>
+                </div>
+                <div class="flex px-4 gap-2">
+                    <button id="tab-buttons" class="flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-indigo-500 text-white">Buttons</button>
+                    <button id="tab-system" class="flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-transparent text-zinc-500 hover:text-zinc-300">System</button>
+                </div>
+            </div>
+            <div id="settings-content" class="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1"></div>
+            <div class="p-4 border-t border-zinc-800 bg-zinc-900 shrink-0">
+                <button id="close-settings-btn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-[0.98]">Save & Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden animate-in fade-in duration-200">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl scale-100">
+            <div class="flex items-center gap-3 mb-4 text-red-500">
+                <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                <h3 class="text-lg font-bold text-white">Delete all audio?</h3>
+            </div>
+            <p class="text-zinc-400 text-sm mb-6 leading-relaxed">This will permanently remove all recorded sounds from this device. Button text labels will be kept.</p>
+            <div class="flex gap-3">
+                <button id="btn-cancel-clear" class="flex-1 py-3 rounded-xl font-bold text-zinc-400 hover:bg-zinc-800 transition-colors border border-transparent">Cancel</button>
+                <button id="btn-confirm-clear" class="flex-1 py-3 rounded-xl font-bold bg-red-600 text-white hover:bg-red-500 transition-colors shadow-lg shadow-red-900/20">Delete All</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONSTANTS ---
+        const COLORS = [
+            { name: 'Red', bg: 'bg-red-500', active: 'active:bg-red-700', shadow: 'border-red-800', text: 'text-white' },
+            { name: 'Blue', bg: 'bg-blue-500', active: 'active:bg-blue-700', shadow: 'border-blue-800', text: 'text-white' },
+            { name: 'Green', bg: 'bg-emerald-500', active: 'active:bg-emerald-700', shadow: 'border-emerald-800', text: 'text-white' },
+            { name: 'Yellow', bg: 'bg-yellow-400', active: 'active:bg-yellow-600', shadow: 'border-yellow-700', text: 'text-black' },
+            { name: 'Orange', bg: 'bg-orange-500', active: 'active:bg-orange-700', shadow: 'border-orange-800', text: 'text-white' },
+            { name: 'Purple', bg: 'bg-purple-500', active: 'active:bg-purple-700', shadow: 'border-purple-800', text: 'text-white' },
+            { name: 'Pink', bg: 'bg-pink-500', active: 'active:bg-pink-700', shadow: 'border-pink-800', text: 'text-white' },
+            { name: 'Gray', bg: 'bg-zinc-500', active: 'active:bg-zinc-700', shadow: 'border-zinc-800', text: 'text-white' },
+        ];
+
+        const ORIENTATIONS = [
+            { id: 'auto', label: 'Auto', rotate: 0 },
+            { id: '0', label: '0°', rotate: 0 },
+            { id: '90', label: '90°', rotate: 90 },
+            { id: '180', label: '180°', rotate: 180 },
+            { id: '270', label: '270°', rotate: 270 },
+        ];
+
+        // --- STATE & HELPERS ---
+        const state = {
+            buttons: [],
+            labelPos: 'on',
+            selectedVoiceURI: '',
+            hapticsEnabled: true,
+            audioCueEnabled: true,
+            activationMode: 'press',
+            touchTarget: 'button', 
+            orientationMode: 'auto',
+            debounceTime: 0,
+            showSettings: false,
+            settingsTab: 'buttons',
+            isPositioningMode: false,
+            isSpeaking: false,
+            activeButtonId: null,
+            playingButtonId: null, 
+            editingBtnId: null,
+            voices: [],
+            inDebounce: false,
+            mediaRecorder: null,
+            isRecording: false
+        };
+
+        const createDefaultButton = (idOverride) => ({
+            id: idOverride || Date.now().toString(),
+            label: '',
+            phrases: ["", "", ""],
+            hasAudio: [false, false, false], 
+            color: COLORS[1],
+            pos: { x: 50, y: 50 },
+            scale: 1.0,
+            phraseIndex: 0
+        });
+
+        // --- STORAGE ---
+        function safeGetItem(key) { try { return localStorage.getItem(key); } catch(e) { return null; } }
+        function safeSetItem(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+
+        // --- DB ---
+        const DB_NAME = 't2w_audio_db';
+        const STORE_NAME = 'recordings';
+        let dbInstance = null;
+        
+        function getDB() {
+            return new Promise((resolve) => {
+                if (typeof indexedDB === 'undefined') return resolve(null);
+                if (dbInstance) return resolve(dbInstance);
+                const req = indexedDB.open(DB_NAME, 1);
+                req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+                req.onsuccess = () => { dbInstance = req.result; resolve(dbInstance); };
+                req.onerror = () => resolve(null);
+            });
+        }
+        async function saveAudioBlob(key, blob) {
+            const db = await getDB();
+            if (!db) return false;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put(blob, key);
+                return new Promise(r => { tx.oncomplete = r; tx.onerror = () => r(false); });
+            } catch(e) { return false; }
+        }
+        async function getAudioBlob(key) {
+            const db = await getDB();
+            if (!db) return null;
+            try {
+                return new Promise(r => {
+                    const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
+                    req.onsuccess = () => r(req.result);
+                    req.onerror = () => r(null);
+                });
+            } catch(e) { return null; }
+        }
+        async function deleteAudioBlob(key) {
+            const db = await getDB();
+            if (!db) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).delete(key);
+                return new Promise(r => { tx.oncomplete = r; });
+            } catch(e) {}
+        }
+        async function clearAllAudioData() {
+            const db = await getDB();
+            if (!db) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).clear();
+                return new Promise(r => { tx.oncomplete = r; });
+            } catch(e) {}
+        }
+        async function getStorageSize() {
+            const db = await getDB();
+            if(!db) return 0;
+            return new Promise(resolve => {
+                let size = 0;
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.openCursor();
+                req.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if(cursor) {
+                        if(cursor.value && cursor.value.size) size += cursor.value.size;
+                        cursor.continue();
+                    } else {
+                        resolve(size);
+                    }
+                };
+                req.onerror = () => resolve(0);
+            });
+        }
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // --- AUDIO CONTEXT (OPTIMIZED) ---
+        let audioCtx = null;
+        function initAudioCtx() {
+            if (!audioCtx && (window.AudioContext || window.webkitAudioContext)) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // --- CORE LOGIC ---
+        function loadState() {
+            try {
+                // Button State
+                const savedBtns = safeGetItem('t2w_buttons_v4');
+                let loaded = savedBtns ? JSON.parse(savedBtns) : null;
+                if (Array.isArray(loaded) && loaded.length > 0) {
+                    state.buttons = loaded.map(b => {
+                        if (!b || typeof b !== 'object') return createDefaultButton();
+                        let color = COLORS[1];
+                        if (b.color && b.color.bg) {
+                             const found = COLORS.find(c => c.name === b.color.name);
+                             color = found || b.color; 
+                        }
+                        return {
+                            id: b.id || Math.random().toString(),
+                            label: (typeof b.label === 'string') ? b.label : '',
+                            phrases: Array.isArray(b.phrases) ? b.phrases : ["", "", ""],
+                            hasAudio: Array.isArray(b.hasAudio) ? b.hasAudio : [false, false, false],
+                            color: color,
+                            pos: { x: Number(b.pos?.x) || 50, y: Number(b.pos?.y) || 50 },
+                            scale: Number(b.scale) || 1.0,
+                            phraseIndex: Number(b.phraseIndex) || 0
+                        };
+                    });
+                } else {
+                    state.buttons = [createDefaultButton()];
+                }
+                
+                // Config State
+                state.labelPos = safeGetItem('t2w_label_pos') || 'on';
+                state.selectedVoiceURI = safeGetItem('t2w_voice') || "";
+                state.hapticsEnabled = safeGetItem('t2w_haptics') !== 'false';
+                state.audioCueEnabled = safeGetItem('t2w_audio') !== 'false';
+                state.activationMode = safeGetItem('t2w_mode') || 'press';
+                
+                // CHANGED: Force 'button' default if not set, or if multiple buttons exist
+                state.touchTarget = safeGetItem('t2w_target') || 'button';
+                if (state.buttons.length > 1) state.touchTarget = 'button';
+
+                state.debounceTime = Number(safeGetItem('t2w_debounce')) || 0;
+                state.orientationMode = safeGetItem('t2w_orientation') || 'auto';
+
+                // UI Persistence (Drawer State)
+                const uiState = JSON.parse(safeGetItem('t2w_ui_state') || '{}');
+                state.showSettings = !!uiState.showSettings;
+                state.settingsTab = uiState.settingsTab || 'buttons';
+                
+                // Restore editing button safely
+                const savedEditId = uiState.editingBtnId;
+                const btnExists = state.buttons.find(b => b.id === savedEditId);
+                state.editingBtnId = btnExists ? savedEditId : state.buttons[0]?.id;
+
+            } catch (e) {
+                state.buttons = [createDefaultButton()];
+            }
+        }
+
+        function saveState() {
+            safeSetItem('t2w_buttons_v4', JSON.stringify(state.buttons));
+            safeSetItem('t2w_label_pos', state.labelPos);
+            safeSetItem('t2w_voice', state.selectedVoiceURI);
+            safeSetItem('t2w_haptics', state.hapticsEnabled);
+            safeSetItem('t2w_audio', state.audioCueEnabled);
+            safeSetItem('t2w_mode', state.activationMode);
+            safeSetItem('t2w_target', state.touchTarget);
+            safeSetItem('t2w_debounce', state.debounceTime);
+            safeSetItem('t2w_orientation', state.orientationMode);
+            // Save UI state to survive reloads from permission prompts
+            safeSetItem('t2w_ui_state', JSON.stringify({
+                showSettings: state.showSettings,
+                settingsTab: state.settingsTab,
+                editingBtnId: state.editingBtnId
+            }));
+        }
+
+        // --- FUNCTIONS RESTORED ---
+        function openSettings() {
+            state.showSettings = true;
+            if(!state.editingBtnId) state.editingBtnId = state.buttons[0]?.id;
+            document.getElementById('settings-modal').classList.remove('hidden');
+            renderSettingsContent();
+            updateTabUI();
+            saveState();
+        }
+
+        function closeSettings() {
+            state.showSettings = false;
+            document.getElementById('settings-modal').classList.add('hidden');
+            saveState();
+            renderButtons();
+        }
+
+        function safeIcons() {
+            if(window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+        }
+
+        function updateTabUI() {
+            const b = document.getElementById('tab-buttons');
+            const s = document.getElementById('tab-system');
+            if(state.settingsTab === 'buttons') {
+                b.className = "flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-indigo-500 text-white";
+                s.className = "flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-transparent text-zinc-500 hover:text-zinc-300";
+            } else {
+                s.className = "flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-indigo-500 text-white";
+                b.className = "flex-1 py-3 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors border-transparent text-zinc-500 hover:text-zinc-300";
+            }
+        }
+
+        // --- DOM INIT ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            
+            if (window.lucide) window.lucide.createIcons();
+            
+            if(window.speechSynthesis) {
+                const loadVoices = () => {
+                    state.voices = window.speechSynthesis.getVoices();
+                    if (!state.selectedVoiceURI && state.voices.length) state.selectedVoiceURI = state.voices[0].voiceURI;
+                };
+                window.speechSynthesis.onvoiceschanged = loadVoices;
+                loadVoices();
+            }
+
+            renderButtons();
+
+            // Auto-open settings if state was persisted (e.g. after mic reload)
+            if (state.showSettings) {
+                document.getElementById('settings-modal').classList.remove('hidden');
+                renderSettingsContent();
+                updateTabUI();
+            }
+            
+            // Event Listeners
+            document.getElementById('settings-trigger').addEventListener('click', openSettings);
+            document.getElementById('close-settings-top').onclick = closeSettings;
+            document.getElementById('close-settings-btn').onclick = closeSettings;
+            
+            document.getElementById('tab-buttons').onclick = () => {
+                 state.settingsTab = 'buttons'; 
+                 renderSettingsContent();
+                 updateTabUI();
+                 saveState();
+            };
+            document.getElementById('tab-system').onclick = () => {
+                 state.settingsTab = 'system'; 
+                 renderSettingsContent();
+                 updateTabUI();
+                 saveState();
+            };
+            
+            document.getElementById('lock-pos-btn').onclick = () => togglePositioning(false);
+            document.getElementById('reset-pos-btn').onclick = () => { 
+                state.buttons.forEach((b,i) => b.pos={x:50, y:50+(i*10)}); 
+                renderButtons(); 
+            };
+            
+            // Background listener for "Whole Screen" activation mode
+            const mainCanvas = document.getElementById('main-canvas');
+            mainCanvas.addEventListener('pointerdown', (e) => {
+                if (state.isPositioningMode || state.showSettings) return;
+                // If clicking directly on a button, do nothing (button handles it)
+                if (e.target.closest('.app-button')) return;
+
+                if (state.buttons.length === 1 && state.touchTarget === 'screen' && state.activationMode === 'press') {
+                    e.preventDefault();
+                    activateSwitch(state.buttons[0].id);
+                }
+            });
+            
+            // Confirm Modal Listeners
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('btn-cancel-clear').onclick = () => modal.classList.add('hidden');
+            document.getElementById('btn-confirm-clear').onclick = async () => {
+                await clearAllAudioData();
+                state.buttons.forEach(b => b.hasAudio = [false, false, false]);
+                saveState();
+                renderSettingsContent();
+                modal.classList.add('hidden');
+            };
+
+            // Hold Logic
+            const settingsTrigger = document.getElementById('settings-trigger');
+            const holdRing = document.getElementById('hold-progress-ring');
+            const settingsIcon = document.getElementById('settings-icon');
+            let holdTimer;
+
+            function startHold(e) {
+                if (state.isPositioningMode) return;
+                settingsTrigger.classList.add('bg-zinc-800', 'scale-110');
+                settingsIcon.classList.add('text-indigo-400');
+                let start = Date.now();
+                holdTimer = setInterval(() => {
+                    let pct = Math.min(100, (Date.now() - start) / 2000 * 100);
+                    holdRing.style.strokeDashoffset = 125.6 - (125.6 * pct / 100);
+                    if (pct >= 100) { endHold(); openSettings(); }
+                }, 16);
+            }
+
+            function endHold() {
+                clearInterval(holdTimer);
+                settingsTrigger.classList.remove('bg-zinc-800', 'scale-110');
+                settingsIcon.classList.remove('text-indigo-400');
+                holdRing.style.strokeDashoffset = 125.6;
+            }
+            
+            settingsTrigger.addEventListener('mousedown', startHold);
+            settingsTrigger.addEventListener('touchstart', startHold);
+            ['mouseup', 'mouseleave', 'touchend'].forEach(ev => settingsTrigger.addEventListener(ev, endHold));
+        });
+
+        // --- RENDER & LOGIC ---
+        function renderButtons() {
+            const mainCanvas = document.getElementById('main-canvas');
+            if(!mainCanvas) return;
+            mainCanvas.innerHTML = '';
+
+            state.buttons.forEach(btn => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'absolute';
+                wrapper.style.left = `${btn.pos.x}%`;
+                wrapper.style.top = `${btn.pos.y}%`;
+                wrapper.style.transform = `translate(-50%, -50%) scale(${btn.scale || 1})`;
+                
+                const rotatable = document.createElement('div');
+                rotatable.className = 'relative group perspective-1000 btn-rotatable transition-transform duration-300 ease-out';
+                
+                const btnEl = document.createElement('button');
+                btnEl.className = `app-button relative w-64 h-64 md:w-80 md:h-80 rounded-full ${btn.color.bg} ${btn.color.shadow} transition-all duration-100 transform flex items-center justify-center shadow-inner overflow-hidden outline-none cursor-pointer select-none`;
+                btnEl.style.borderBottomWidth = '20px';
+                btnEl.dataset.id = btn.id;
+                
+                btnEl.innerHTML = `
+                    ${state.isPositioningMode ? `<div class="absolute inset-0 flex items-center justify-center bg-black/20 z-20 pointer-events-none"><i data-lucide="grip" class="w-16 h-16 text-white opacity-80"></i></div>` : ''}
+                    <div class="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-black/20 pointer-events-none"></div>
+                    <div class="absolute inset-6 rounded-full border border-white/20 pointer-events-none opacity-50"></div>
+                    ${(state.labelPos === 'on' && btn.label) ? `<span class="relative z-10 text-3xl font-black uppercase tracking-widest drop-shadow-md px-4 text-center ${btn.color.text} pointer-events-none select-none">${btn.label}</span>` : ''}
+                    <div class="speaking-indicator absolute inset-0 items-center justify-center gap-4 opacity-90 z-0 hidden">
+                        <div class="w-4 h-20 bg-white/80 rounded-full animate-bounce-custom" style="animation-delay: 0s"></div>
+                        <div class="w-4 h-20 bg-white/80 rounded-full animate-bounce-custom" style="animation-delay: 0.15s"></div>
+                        <div class="w-4 h-20 bg-white/80 rounded-full animate-bounce-custom" style="animation-delay: 0.3s"></div>
+                    </div>
+                `;
+
+                btnEl.addEventListener('wheel', (e) => {
+                    if (state.isPositioningMode) {
+                        e.preventDefault();
+                        const direction = e.deltaY < 0 ? 1 : -1;
+                        const newScale = Math.min(3.0, Math.max(0.4, (btn.scale || 1) + (direction * 0.1)));
+                        btn.scale = parseFloat(newScale.toFixed(2));
+                        renderButtons();
+                        saveState(); // Save on wheel resize
+                    }
+                }, { passive: false });
+
+                btnEl.addEventListener('pointerdown', (e) => {
+                    if (state.isPositioningMode) {
+                        e.stopPropagation();
+                        if (e.pointerType !== 'mouse') e.preventDefault();
+                        initGesture(e, btn.id);
+                    } else if (state.activationMode === 'press') {
+                        e.stopPropagation();
+                        if (e.pointerType === 'touch') e.preventDefault();
+                        activateSwitch(btn.id);
+                    }
+                });
+
+                rotatable.appendChild(btnEl);
+
+                if (state.labelPos === 'under' && btn.label) {
+                    const lbl = document.createElement('div');
+                    lbl.className = 'absolute left-1/2 -translate-x-1/2 top-[115%] px-8 py-3 bg-zinc-900/80 backdrop-blur rounded-2xl border border-zinc-800 whitespace-nowrap pointer-events-none';
+                    lbl.innerHTML = `<span class="text-2xl font-bold tracking-wider text-zinc-200 uppercase">${btn.label}</span>`;
+                    rotatable.appendChild(lbl);
+                }
+                wrapper.appendChild(rotatable);
+                mainCanvas.appendChild(wrapper);
+            });
+            
+            safeIcons();
+            updateVisuals();
+        }
+
+        function updateVisuals() {
+            const btns = document.querySelectorAll('.app-button');
+            btns.forEach(b => {
+                if (state.inDebounce || state.isPositioningMode) b.style.opacity = '0.9';
+                else b.style.opacity = '1';
+                const isPressed = b.dataset.id === state.activeButtonId;
+                if (isPressed && !state.isPositioningMode) {
+                    b.classList.add('translate-y-4', 'brightness-95');
+                    b.style.borderBottomWidth = '4px';
+                } else {
+                    b.classList.remove('translate-y-4', 'brightness-95');
+                    b.style.borderBottomWidth = '20px';
+                }
+                const indicator = b.querySelector('.speaking-indicator');
+                if (indicator) indicator.style.display = (state.isSpeaking && state.playingButtonId === b.dataset.id) ? 'flex' : 'none';
+            });
+            const rot = state.orientationMode === 'auto' ? 0 : (ORIENTATIONS.find(o => o.id === state.orientationMode)?.rotate || 0);
+            document.querySelectorAll('.header-rotate, #positioning-overlay, .btn-rotatable').forEach(el => {
+                el.style.transform = `rotate(${rot}deg)`;
+            });
+        }
+
+        const gesture = { active: false, btnId: null, startScale: 1, startDist: 0, startPos: {x:0,y:0}, startCen: {x:0,y:0} };
+
+        function initGesture(e, btnId) {
+            const btn = state.buttons.find(b => b.id === btnId);
+            const t = e.touches ? e.touches[0] : e;
+            gesture.active = true;
+            gesture.btnId = btnId;
+            gesture.startScale = btn.scale || 1;
+            gesture.startPos = { ...btn.pos };
+            gesture.startCen = { x: t.clientX, y: t.clientY };
+            gesture.startDist = 0;
+        }
+
+        function togglePositioning(active) {
+            state.isPositioningMode = active;
+            const overlay = document.getElementById('positioning-overlay');
+            const hdr = document.getElementById('header');
+            if (active) {
+                overlay.classList.remove('hidden');
+                hdr.classList.add('opacity-0', 'pointer-events-none');
+            } else {
+                overlay.classList.add('hidden');
+                hdr.classList.remove('opacity-0', 'pointer-events-none');
+                saveState();
+            }
+            renderButtons();
+        }
+
+        window.addEventListener('touchmove', (e) => {
+            if (!state.isPositioningMode || !gesture.active) return;
+            e.preventDefault();
+            const btn = state.buttons.find(b => b.id === gesture.btnId);
+            if (!btn) return;
+            if (e.touches.length === 2) {
+                const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                if (gesture.startDist === 0) gesture.startDist = d;
+                btn.scale = Math.min(3, Math.max(0.4, gesture.startScale * (d / gesture.startDist)));
+            } else {
+                const rect = document.getElementById('main-canvas').getBoundingClientRect();
+                const dx = e.touches[0].clientX - gesture.startCen.x;
+                const dy = e.touches[0].clientY - gesture.startCen.y;
+                btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
+                btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
+            }
+            renderButtons();
+        }, { passive: false });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!state.isPositioningMode || !gesture.active) return;
+            const btn = state.buttons.find(b => b.id === gesture.btnId);
+            const rect = document.getElementById('main-canvas').getBoundingClientRect();
+            const dx = e.clientX - gesture.startCen.x;
+            const dy = e.clientY - gesture.startCen.y;
+            btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
+            btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
+            renderButtons();
+        });
+
+        window.addEventListener('touchend', () => {
+            if (gesture.active) {
+                gesture.active = false;
+                saveState(); // Save on drop/end
+            }
+        });
+        window.addEventListener('mouseup', () => {
+            if (gesture.active) {
+                gesture.active = false;
+                saveState(); // Save on drop/end
+            }
+            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
+            }
+        });
+
+        async function activateSwitch(btnId) {
+            if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
+            if (state.debounceTime > 0) {
+                state.inDebounce = true;
+                setTimeout(() => { state.inDebounce = false; updateVisuals(); }, state.debounceTime * 1000);
+            }
+
+            if (state.hapticsEnabled && navigator.vibrate) try{ navigator.vibrate(50); }catch(e){}
+            
+            // OPTIMIZED AUDIO CONTEXT USE
+            if (state.audioCueEnabled) {
+                 try {
+                     const ctx = initAudioCtx();
+                     if (ctx) {
+                         const osc = ctx.createOscillator();
+                         const g = ctx.createGain();
+                         osc.connect(g); g.connect(ctx.destination);
+                         osc.frequency.setValueAtTime(600, ctx.currentTime);
+                         osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime+0.15);
+                         g.gain.setValueAtTime(0, ctx.currentTime);
+                         g.gain.linearRampToValueAtTime(0.2, ctx.currentTime+0.02);
+                         g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
+                         osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.15);
+                     }
+                 } catch(e){}
+            }
+
+            state.activeButtonId = btnId;
+            updateVisuals();
+            setTimeout(() => { state.activeButtonId = null; updateVisuals(); }, 200);
+
+            const btn = state.buttons.find(b => b.id === btnId);
+            if (!btn) return;
+
+            const idx = btn.phraseIndex;
+            const audioKey = `${btn.id}_${idx}`;
+            
+            let played = false;
+            if (btn.hasAudio && btn.hasAudio[idx]) {
+                const blob = await getAudioBlob(audioKey);
+                if (blob) {
+                    played = true;
+                    const url = URL.createObjectURL(blob);
+                    const aud = new Audio(url);
+                    state.isSpeaking = true; 
+                    state.playingButtonId = btn.id;
+                    updateVisuals();
+                    aud.onended = () => { 
+                        state.isSpeaking = false; 
+                        state.playingButtonId = null; 
+                        updateVisuals(); 
+                        URL.revokeObjectURL(url); 
+                    };
+                    aud.onerror = () => fallbackSpeak(btn);
+                    aud.play().catch(() => fallbackSpeak(btn));
+                }
+            }
+            if (!played) fallbackSpeak(btn);
+
+            const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
+            if (valid.length > 1) {
+                let next = (idx + 1) % 3;
+                let s = 0;
+                while((!btn.phrases[next] || !btn.phrases[next].trim()) && (!btn.hasAudio || !btn.hasAudio[next]) && s<5) {
+                    next = (next+1)%3; s++;
+                }
+                btn.phraseIndex = next;
+                saveState();
+            }
+        }
+
+        function fallbackSpeak(btn) {
+            let txt = btn.phrases[btn.phraseIndex] || btn.phrases.find(p=>p) || "";
+            if(txt.trim() && window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(txt);
+                const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
+                if(v) u.voice = v;
+                u.rate = 0.9;
+                u.onstart = () => { 
+                    state.isSpeaking = true; 
+                    state.playingButtonId = btn.id;
+                    updateVisuals(); 
+                };
+                u.onend = u.onerror = () => { 
+                    state.isSpeaking = false; 
+                    state.playingButtonId = null; 
+                    updateVisuals(); 
+                };
+                window.speechSynthesis.speak(u);
+            }
+        }
+
+        async function toggleRecording(btnId, phraseIndex, btnElement) {
+            if (state.isRecording) {
+                if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+            } else {
+                try {
+                    // Save state just in case reload happens
+                    saveState();
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const mediaRecorder = new MediaRecorder(stream);
+                    const chunks = [];
+                    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+                    mediaRecorder.onstop = async () => {
+                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                        await saveAudioBlob(`${btnId}_${phraseIndex}`, blob);
+                        const btn = state.buttons.find(b => b.id === btnId);
+                        if(!btn.hasAudio) btn.hasAudio = [false,false,false];
+                        btn.hasAudio[phraseIndex] = true;
+                        saveState();
+                        stream.getTracks().forEach(t => t.stop());
+                        state.isRecording = false;
+                        renderSettingsContent();
+                    };
+                    mediaRecorder.start();
+                    state.isRecording = true;
+                    state.mediaRecorder = mediaRecorder;
+                    btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current"></i>`;
+                    btnElement.classList.add('bg-red-600', 'text-white', 'recording-pulse');
+                    safeIcons();
+                } catch (err) { alert("Mic access denied"); }
+            }
+        }
+
+        let activePreview = null;
+        async function playPreview(btnId, phraseIndex) {
+            if (activePreview) { activePreview.pause(); activePreview = null; }
+            const blob = await getAudioBlob(`${btnId}_${phraseIndex}`);
+            if (blob) {
+                activePreview = new Audio(URL.createObjectURL(blob));
+                activePreview.play();
+                activePreview.onended = () => { activePreview = null; };
+            }
+        }
+
+        async function deleteRecording(btnId, phraseIndex) {
+            await deleteAudioBlob(`${btnId}_${phraseIndex}`);
+            const btn = state.buttons.find(b => b.id === btnId);
+            if(btn.hasAudio) btn.hasAudio[phraseIndex] = false;
+            saveState();
+            renderSettingsContent();
+        }
+
+        function renderSettingsContent() {
+            const settingsContent = document.getElementById('settings-content');
+            settingsContent.innerHTML = '';
+            
+            if (state.settingsTab === 'buttons') {
+                const sel = document.createElement('div');
+                sel.className = 'flex gap-2 overflow-x-auto pb-2 mb-6';
+                state.buttons.forEach((b,i) => {
+                     const btn = document.createElement('button');
+                     const active = state.editingBtnId === b.id;
+                     btn.className = `flex items-center gap-2 px-4 py-3 rounded-xl border shrink-0 ${active?'bg-zinc-800 border-indigo-500 ring-1 ring-indigo-500':'bg-zinc-950 border-zinc-800 opacity-60'}`;
+                     btn.innerHTML = `<div class="w-3 h-3 rounded-full ${b.color.bg}"></div><span class="text-xs font-bold uppercase ${active?'text-white':'text-zinc-500'}">Button ${i+1}</span>`;
+                     btn.onclick = () => { state.editingBtnId = b.id; renderSettingsContent(); saveState(); };
+                     sel.appendChild(btn);
+                });
+                if(state.buttons.length < 4) {
+                    const add = document.createElement('button');
+                    add.className = 'px-4 py-3 rounded-xl border border-dashed border-zinc-700 text-zinc-500 flex items-center gap-2 shrink-0';
+                    add.innerHTML = `<i data-lucide="plus" class="w-4 h-4"></i> Add`;
+                    add.onclick = () => {
+                        const off = state.buttons.length*10;
+                        state.buttons.push({ ...createDefaultButton(), id: Date.now().toString(), pos: { x: 50+off, y: 50-off }, color: COLORS[state.buttons.length % COLORS.length] });
+                        state.editingBtnId = state.buttons[state.buttons.length-1].id;
+                        renderSettingsContent();
+                        saveState();
+                    };
+                    sel.appendChild(add);
+                }
+                settingsContent.appendChild(sel);
+
+                const editBtn = state.buttons.find(b => b.id === state.editingBtnId);
+                if (editBtn) {
+                    const form = document.createElement('div');
+                    form.className = 'space-y-6';
+                    form.innerHTML = `
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="edit-3" class="w-3 h-3"></i> Label</label><input class="w-full mt-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${editBtn.label}" id="inp-label" placeholder="(Optional)"></div>
+                            <div><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="palette" class="w-3 h-3"></i> Color</label><div class="grid grid-cols-4 gap-2 mt-2" id="grid-color"></div></div>
+                        </div>
+                        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                            <label class="text-[10px] text-zinc-500 uppercase font-bold block mb-3 flex items-center gap-2">
+                                <i data-lucide="mouse-pointer-2" class="w-3 h-3"></i> Activation Area
+                            </label>
+                            <div class="flex gap-2">
+                                <button id="target-screen" class="flex-1 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.touchTarget === 'screen' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}">Whole Screen</button>
+                                <button id="target-button" class="flex-1 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.touchTarget === 'button' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}">Button Only</button>
+                            </div>
+                            ${state.buttons.length > 1 ? '<p class="text-[9px] text-orange-400 mt-2 flex items-center gap-1"><i data-lucide="lock" class="w-3 h-3"></i> Locked to "Button Only" (multiple buttons)</p>' : ''}
+                        </div>
+                        <div class="space-y-3 mt-2" id="list-phrases"></div>
+                        <div class="flex items-center gap-4 pt-4 border-t border-zinc-800">
+                            <div class="flex-1"><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="scaling" class="w-3 h-3"></i> Size</label><input type="range" min="0.5" max="2.0" step="0.1" value="${editBtn.scale || 1}" class="w-full mt-2 h-2 bg-zinc-800 rounded-lg" id="inp-scale"></div>
+                            ${state.buttons.length > 1 ? '<button id="btn-delete" class="text-red-400 text-xs font-bold uppercase px-4 py-2 hover:bg-red-500/10 rounded-lg">Delete</button>' : ''}
+                        </div>
+                    `;
+                    form.querySelector('#inp-label').oninput = (e) => editBtn.label = e.target.value;
+                    form.querySelector('#inp-scale').oninput = (e) => editBtn.scale = parseFloat(e.target.value);
+                    const ts = form.querySelector('#target-screen');
+                    
+                    // CHANGED: Only allow screen target if there is exactly 1 button
+                    if(state.buttons.length > 1){ 
+                        ts.disabled=true; 
+                        ts.classList.add('opacity-40', 'cursor-not-allowed'); 
+                    }
+                    
+                    ts.onclick=()=>{state.touchTarget='screen'; renderSettingsContent(); saveState(); }
+                    form.querySelector('#target-button').onclick=()=>{state.touchTarget='button'; renderSettingsContent(); saveState(); }
+                    
+                    const gc = form.querySelector('#grid-color');
+                    COLORS.forEach(c => {
+                        const b = document.createElement('button');
+                        b.className = `w-full aspect-square rounded-full ${c.bg} ${editBtn.color.name===c.name?'border-2 border-white':'opacity-40'}`;
+                        b.onclick=()=>{editBtn.color=c; renderSettingsContent(); saveState(); }
+                        gc.appendChild(b);
+                    });
+
+                    const pl = form.querySelector('#list-phrases');
+                    editBtn.phrases.forEach((p, idx) => {
+                        const has = editBtn.hasAudio && editBtn.hasAudio[idx];
+                        const w = document.createElement('div');
+                        w.className = 'flex items-center gap-2';
+                        w.innerHTML = `<div class="relative flex-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-600">${idx+1}</span><input class="w-full pl-8 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${p}" placeholder="Phrase"></div>`;
+                        w.querySelector('input').oninput = (e) => editBtn.phrases[idx] = e.target.value;
+                        const rec = document.createElement('button');
+                        rec.className = `p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 ${has ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-white'}`;
+                        if(has) {
+                            rec.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current"></i>`;
+                            rec.onclick = () => playPreview(editBtn.id, idx);
+                            const del = document.createElement('button');
+                            del.className = 'p-3 rounded-xl border border-zinc-800 bg-zinc-900 text-red-400 hover:bg-red-500/10 shrink-0';
+                            del.innerHTML = `<i data-lucide="trash" class="w-4 h-4"></i>`;
+                            del.onclick = () => deleteRecording(editBtn.id, idx);
+                            w.appendChild(rec); w.appendChild(del);
+                        } else {
+                            rec.innerHTML = `<i data-lucide="mic" class="w-4 h-4"></i>`;
+                            rec.onclick = (e) => toggleRecording(editBtn.id, idx, e.currentTarget);
+                            w.appendChild(rec);
+                        }
+                        pl.appendChild(w);
+                    });
+
+                    const bd = form.querySelector('#btn-delete');
+                    if(bd) bd.onclick=()=>{state.buttons=state.buttons.filter(b=>b.id!==editBtn.id); state.editingBtnId=state.buttons[0].id; renderSettingsContent(); saveState(); }
+                    settingsContent.appendChild(form);
+                }
+            } else {
+                 const sys = document.createElement('div');
+                 sys.className = 'space-y-6';
+                 sys.innerHTML = `
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="mouse-pointer-2" class="w-3 h-3"></i> Activation Mode
+                        </label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase ${state.activationMode==='press'?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="sys-press">Press</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase ${state.activationMode==='release'?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="sys-rel">Release</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="bell" class="w-3 h-3"></i> Confirmation Types
+                        </label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button class="flex items-center gap-2 p-3 rounded-xl border text-xs font-bold uppercase ${state.hapticsEnabled?'bg-zinc-800 border-indigo-500 text-indigo-400':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="sys-hap"><i data-lucide="zap" class="w-4 h-4"></i> Vibration</button>
+                            <button class="flex items-center gap-2 p-3 rounded-xl border text-xs font-bold uppercase ${state.audioCueEnabled?'bg-zinc-800 border-indigo-500 text-indigo-400':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="sys-snd"><i data-lucide="music" class="w-4 h-4"></i> Sound</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="hourglass" class="w-3 h-3"></i> Activation Cooldown
+                        </label>
+                        <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                            <div class="flex justify-between mb-2">
+                                <span class="text-[10px] uppercase font-bold text-zinc-500">Debounce Time</span>
+                                <span class="text-[10px] font-mono text-indigo-400">${state.debounceTime}s</span>
+                            </div>
+                            <input type="range" min="0" max="3" step="0.5" value="${state.debounceTime}" class="w-full h-2 bg-zinc-800 rounded-lg" id="sys-debounce">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="layout-grid" class="w-3 h-3"></i> Layout & Tools
+                        </label>
+                        <div class="space-y-3">
+                            <button class="w-full p-4 border-2 border-dashed border-indigo-500/30 bg-indigo-500/5 text-indigo-300 rounded-xl text-xs font-bold uppercase hover:bg-indigo-500/10 hover:border-indigo-500 hover:text-indigo-200 flex items-center justify-center gap-2 transition-all" id="sys-unlock">
+                                <i data-lucide="move" class="w-4 h-4"></i> Unlock & Move
+                            </button>
+                            <button class="w-full p-4 border border-zinc-800 bg-zinc-950 rounded-xl text-zinc-400 text-xs font-bold uppercase hover:bg-zinc-900 flex items-center justify-center gap-2" id="sys-fs">
+                                <i data-lucide="${document.fullscreenElement ? 'minimize' : 'maximize'}" class="w-4 h-4"></i> 
+                                ${document.fullscreenElement ? 'Exit Full Screen' : 'Enter Full Screen'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="pt-6 border-t border-zinc-800">
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="database" class="w-3 h-3"></i> Storage</label>
+                        <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4 flex items-center justify-between">
+                            <span class="text-xs font-bold text-zinc-400" id="storage-size">Calculating...</span>
+                            <button id="btn-clear-storage" class="text-red-400 text-xs font-bold uppercase px-3 py-2 hover:bg-red-500/10 rounded-lg transition-colors">Clear All</button>
+                        </div>
+                    </div>
+
+                    <div class="text-center pt-8 pb-4">
+                        <div class="inline-flex items-center gap-3 px-5 py-3 bg-zinc-800/50 rounded-xl border border-zinc-700">
+                            <i data-lucide="keyboard" class="w-5 h-5 text-indigo-400"></i>
+                            <span class="text-sm font-bold text-zinc-200">Press keys 1, 2, 3, 4 to trigger</span>
+                        </div>
+                    </div>
+                 `;
+                 sys.querySelector('#sys-press').onclick=()=>{state.activationMode='press'; renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-rel').onclick=()=>{state.activationMode='release'; renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-hap').onclick=()=>{state.hapticsEnabled=!state.hapticsEnabled; renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-snd').onclick=()=>{state.audioCueEnabled=!state.audioCueEnabled; renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-debounce').oninput=(e)=>{state.debounceTime=Number(e.target.value); renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-unlock').onclick=()=>{closeSettings(); togglePositioning(true);}
+                 sys.querySelector('#sys-fs').onclick=()=>{if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>{}); else document.exitFullscreen();}
+                 
+                 // Storage Logic
+                 sys.querySelector('#btn-clear-storage').onclick = () => document.getElementById('confirm-modal').classList.remove('hidden');
+                 getStorageSize().then(size => {
+                     const el = document.getElementById('storage-size');
+                     if(el) el.innerText = formatBytes(size);
+                 });
+
+                 settingsContent.appendChild(sys);
+            }
+            safeIcons();
+        }
+        
+        // ADDED: KEYBOARD SUPPORT
+        window.addEventListener('keydown', (e) => {
+            if (state.showSettings || state.isPositioningMode) return;
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault();
+                if (state.buttons.length > 0) activateSwitch(state.buttons[0].id);
+            }
+            if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+                const idx = parseInt(e.code.slice(-1)) - 1;
+                if (state.buttons[idx]) activateSwitch(state.buttons[idx].id);
+            }
+        });
+
+    </script>
+</body>
+</html>
