@@ -1,0 +1,69 @@
+{
+    "name": "TouchTab – Tap to Words",
+    "short_name": "TouchTab",
+    "description": "A privacy-first Augmentative and Alternative Communication (AAC) app. Tap large buttons to speak words and phrases. Works fully offline.",
+    "start_url": "./",
+    "scope": "./",
+    "id": "touchtab-aac-v1",
+    "display": "standalone",
+    "display_override": ["standalone", "fullscreen"],
+    "orientation": "any",
+    "background_color": "#09090b",
+    "theme_color": "#09090b",
+    "lang": "en",
+    "dir": "ltr",
+    "categories": ["accessibility", "medical", "education"],
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "Open App",
+            "short_name": "Open",
+            "description": "Launch TouchTab",
+            "url": "./"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "touchdeck.png",
+            "sizes": "3837x1731",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "TouchTab main screen with a single large button"
+        },
+        {
+            "src": "touchdeck1.png",
+            "sizes": "3783x1722",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "TouchTab with multiple buttons"
+        },
+        {
+            "src": "touchdeck2.png",
+            "sizes": "2232x1668",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "TouchTab settings panel"
+        },
+        {
+            "src": "touchdeck3.png",
+            "sizes": "3834x1728",
+            "type": "image/png",
+            "form_factor": "wide",
+            "label": "TouchTab in use"
+        }
+    ]
+}

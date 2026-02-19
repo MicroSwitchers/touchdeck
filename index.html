@@ -2,14 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    
-    <!-- PWA / Tablet Standalone Mode Tags -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+    <!-- Primary Meta -->
+    <meta name="description" content="A privacy-first AAC communication app. Tap large buttons to speak words and phrases.">
+    <meta name="author" content="TouchTab">
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- PWA / Standalone Mode -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-title" content="TouchTab">
+    <meta name="application-name" content="TouchTab">
+    <meta name="msapplication-TileColor" content="#09090b">
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="apple-touch-icon" href="icons/icon.svg">
+
+    <!-- Open Graph (for link sharing) -->
+    <meta property="og:title" content="TouchTab – Tap to Words">
+    <meta property="og:description" content="A privacy-first AAC communication app for tablets.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="icons/icon.svg">
 
     <title>Tap to Words</title>
     
@@ -51,13 +70,47 @@
         }
         .recording-pulse { animation: pulse-record 1.5s infinite ease-in-out; }
         
-        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+            -webkit-appearance: none; appearance: none; height: 16px; width: 16px; border-radius: 50%;
             background: #6366f1; cursor: pointer; margin-top: -4px; 
         }
         input[type=range]::-webkit-slider-runnable-track {
             width: 100%; height: 8px; cursor: pointer; background: #27272a; border-radius: 4px;
+        }
+
+        /* ── iOS / iPadOS fixes ──────────────────────────────────────────── */
+        /* fill-available so the app fills the visible viewport, not 100vh which
+           on Safari includes the hidden URL-bar space */
+        html { height: 100%; }
+        html, body { min-height: -webkit-fill-available; }
+
+        /* Safe-area insets: keep gear button clear of notch / Dynamic Island */
+        #header {
+            padding-top:   max(1.5rem, env(safe-area-inset-top,   1.5rem));
+            padding-right: max(1.5rem, env(safe-area-inset-right, 1.5rem));
+        }
+        /* Keep positioning-mode bottom buttons above the home indicator */
+        #pos-overlay-footer {
+            padding-bottom: max(2rem, env(safe-area-inset-bottom, 2rem));
+        }
+
+        /* Allow finger-scrolling inside the settings panel.
+           body has touch-action:none which would otherwise block it. */
+        #settings-content {
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
+            overflow-y: scroll;
+        }
+
+        /* Vendor-prefixed backdrop-filter for iOS 12-14 */
+        #settings-backdrop { -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+        #confirm-modal     { -webkit-backdrop-filter: blur(4px);  backdrop-filter: blur(4px);  }
+
+        /* Remove grey flash on tap and suppress native long-press callout */
+        button, [role="button"] {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
         }
     </style>
 </head>
@@ -88,7 +141,7 @@
                     <span>Drag to Move • Pinch/Scroll to Resize</span>
                 </div>
             </div>
-            <div class="absolute bottom-8 left-0 w-full flex justify-center gap-4 pointer-events-auto">
+            <div id="pos-overlay-footer" class="absolute bottom-0 left-0 w-full flex justify-center gap-4 pointer-events-auto pb-8">
                 <button id="reset-pos-btn" class="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 border border-zinc-700">
                     <i data-lucide="rotate-ccw" class="w-5 h-5"></i> Reset
                 </button>
@@ -287,6 +340,31 @@
             return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
         }
 
+        // --- CROSS-PLATFORM HELPERS ---
+        function escHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        // Detect the best supported recording MIME type for the current browser/platform.
+        // Prioritises opus-in-webm (Chrome/Firefox/Android), falls back to mp4 (iOS/Safari).
+        function getSupportedMimeType() {
+            if (typeof MediaRecorder === 'undefined') return '';
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/ogg',
+                'audio/mp4;codecs=mp4a.40.2',
+                'audio/mp4',
+            ];
+            for (const t of types) {
+                try { if (MediaRecorder.isTypeSupported(t)) return t; } catch(e) {}
+            }
+            return '';
+        }
+
         // --- AUDIO CONTEXT (OPTIMIZED) ---
         let audioCtx = null;
         function initAudioCtx() {
@@ -297,6 +375,42 @@
                 audioCtx.resume();
             }
             return audioCtx;
+        }
+
+        // blob.arrayBuffer() polyfill for iOS <= 14.4 which lacks the method.
+        function blobToArrayBuffer(blob) {
+            if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(blob);
+            });
+        }
+
+        // iOS-safe audio playback via AudioContext + AudioBufferSourceNode.
+        // HTMLAudioElement.play() fails after any await because iOS revokes the
+        // user-gesture requirement. AudioBufferSourceNode.start() works fine
+        // once the AudioContext is in a running state (unlocked synchronously
+        // earlier in the same event handler via initAudioCtx()).
+        async function createAndPlayAudio(blob, { onEnded, onError } = {}) {
+            try {
+                const ctx = initAudioCtx();
+                if (!ctx) throw new Error('No AudioContext available');
+                const arrayBuffer = await blobToArrayBuffer(blob);
+                const audioBuffer = await new Promise((resolve, reject) => {
+                    ctx.decodeAudioData(arrayBuffer, resolve, reject);
+                });
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(ctx.destination);
+                source.onended = () => onEnded && onEnded();
+                source.start(0);
+                return source; // caller can .stop() to interrupt early
+            } catch (err) {
+                onError && onError(err);
+                return null;
+            }
         }
 
         // --- CORE LOGIC ---
@@ -384,6 +498,10 @@
         }
 
         function closeSettings() {
+            // Stop any in-progress recording so the mic stream is released
+            if (state.isRecording && state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+                state.mediaRecorder.stop();
+            }
             state.showSettings = false;
             document.getElementById('settings-modal').classList.add('hidden');
             saveState();
@@ -438,9 +556,15 @@
                 updateTabUI();
             }
             
-            document.getElementById('settings-trigger').addEventListener('click', openSettings);
+            // Settings only opens via the 3-second hold — block any plain click.
+            let holdFired = false;
+            document.getElementById('settings-trigger').addEventListener('click', (e) => {
+                e.preventDefault();
+                holdFired = false; // consume any stale flag
+            });
             document.getElementById('close-settings-top').onclick = closeSettings;
             document.getElementById('close-settings-btn').onclick = closeSettings;
+            document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
             
             document.getElementById('tab-buttons').onclick = () => {
                  state.settingsTab = 'buttons'; 
@@ -456,9 +580,10 @@
             };
             
             document.getElementById('lock-pos-btn').onclick = () => togglePositioning(false);
-            document.getElementById('reset-pos-btn').onclick = () => { 
-                state.buttons.forEach((b,i) => b.pos={x:50, y:50+(i*10)}); 
-                renderButtons(); 
+            document.getElementById('reset-pos-btn').onclick = () => {
+                state.buttons.forEach((b, i) => b.pos = { x: 50, y: 50 + (i * 10) });
+                saveState();
+                renderButtons();
             };
             
             // Confirm Modal Listeners
@@ -481,13 +606,14 @@
 
             function startHold(e) {
                 if (state.isPositioningMode) return;
+                holdFired = false;
                 settingsTrigger.classList.add('bg-zinc-800', 'scale-110');
                 settingsIcon.classList.add('text-indigo-400');
                 let start = Date.now();
                 holdTimer = setInterval(() => {
-                    let pct = Math.min(100, (Date.now() - start) / 2000 * 100);
+                    let pct = Math.min(100, (Date.now() - start) / 3000 * 100);
                     holdRing.style.strokeDashoffset = 125.6 - (125.6 * pct / 100);
-                    if (pct >= 100) { endHold(); openSettings(); }
+                    if (pct >= 100) { holdFired = true; endHold(); openSettings(); }
                 }, 16);
             }
 
@@ -499,7 +625,9 @@
             }
             
             settingsTrigger.addEventListener('mousedown', startHold);
-            settingsTrigger.addEventListener('touchstart', startHold);
+            // passive:false + preventDefault stops iOS from showing the native
+            // long-press callout (Save Image / Copy) while the progress ring fills.
+            settingsTrigger.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(e); }, { passive: false });
             ['mouseup', 'mouseleave', 'touchend'].forEach(ev => settingsTrigger.addEventListener(ev, endHold));
         });
 
@@ -512,6 +640,7 @@
             state.buttons.forEach(btn => {
                 const wrapper = document.createElement('div');
                 wrapper.className = 'absolute';
+                wrapper.dataset.btnWrapper = btn.id;
                 wrapper.style.left = `${btn.pos.x}%`;
                 wrapper.style.top = `${btn.pos.y}%`;
                 wrapper.style.transform = `translate(-50%, -50%) scale(${btn.scale || 1})`;
@@ -528,7 +657,7 @@
                     ${state.isPositioningMode ? `<div class="absolute inset-0 flex items-center justify-center bg-black/20 z-20 pointer-events-none"><i data-lucide="grip" class="w-16 h-16 text-white opacity-80"></i></div>` : ''}
                     <div class="absolute inset-0 bg-gradient-to-br from-white/30 via-transparent to-black/20 pointer-events-none"></div>
                     <div class="absolute inset-6 rounded-full border border-white/20 pointer-events-none opacity-50"></div>
-                    ${(state.labelPos === 'on' && btn.label) ? `<span class="relative z-10 text-3xl font-black uppercase tracking-widest drop-shadow-md px-4 text-center ${btn.color.text} pointer-events-none select-none">${btn.label}</span>` : ''}
+                    ${(state.labelPos === 'on' && btn.label) ? `<span class="relative z-10 text-3xl font-black uppercase tracking-widest drop-shadow-md px-4 text-center ${btn.color.text} pointer-events-none select-none">${escHtml(btn.label)}</span>` : ''}
                     <div class="speaking-indicator absolute inset-0 items-center justify-center gap-4 opacity-90 z-0 hidden">
                         <div class="w-4 h-20 bg-white/80 rounded-full animate-bounce-custom" style="animation-delay: 0s"></div>
                         <div class="w-4 h-20 bg-white/80 rounded-full animate-bounce-custom" style="animation-delay: 0.15s"></div>
@@ -542,8 +671,8 @@
                         const direction = e.deltaY < 0 ? 1 : -1;
                         const newScale = Math.min(3.0, Math.max(0.4, (btn.scale || 1) + (direction * 0.1)));
                         btn.scale = parseFloat(newScale.toFixed(2));
-                        renderButtons();
-                        saveState(); 
+                        updateButtonPositionDOM(btn.id);
+                        saveState();
                     }
                 }, { passive: false });
 
@@ -558,13 +687,20 @@
                         activateSwitch(btn.id);
                     }
                 });
+                // Release mode: activate on pointer-up over the button
+                btnEl.addEventListener('pointerup', (e) => {
+                    if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
+                        e.stopPropagation();
+                        activateSwitch(btn.id);
+                    }
+                });
 
                 rotatable.appendChild(btnEl);
 
                 if (state.labelPos === 'under' && btn.label) {
                     const lbl = document.createElement('div');
                     lbl.className = 'absolute left-1/2 -translate-x-1/2 top-[115%] px-8 py-3 bg-zinc-900/80 backdrop-blur rounded-2xl border border-zinc-800 whitespace-nowrap pointer-events-none';
-                    lbl.innerHTML = `<span class="text-2xl font-bold tracking-wider text-zinc-200 uppercase">${btn.label}</span>`;
+                    lbl.innerHTML = `<span class="text-2xl font-bold tracking-wider text-zinc-200 uppercase">${escHtml(btn.label)}</span>`;
                     rotatable.appendChild(lbl);
                 }
                 wrapper.appendChild(rotatable);
@@ -598,6 +734,17 @@
         }
 
         const gesture = { active: false, btnId: null, startScale: 1, startDist: 0, startPos: {x:0,y:0}, startCen: {x:0,y:0} };
+
+        // Fast DOM update for position/scale during drag (avoids full re-render)
+        function updateButtonPositionDOM(btnId) {
+            const btn = state.buttons.find(b => b.id === btnId);
+            if (!btn) return;
+            const wrapper = document.querySelector(`[data-btn-wrapper="${btnId}"]`);
+            if (!wrapper) return;
+            wrapper.style.left = `${btn.pos.x}%`;
+            wrapper.style.top = `${btn.pos.y}%`;
+            wrapper.style.transform = `translate(-50%, -50%) scale(${btn.scale || 1})`;
+        }
 
         function initGesture(e, btnId) {
             const btn = state.buttons.find(b => b.id === btnId);
@@ -641,24 +788,29 @@
                 btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
                 btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
             }
-            renderButtons();
+            updateButtonPositionDOM(gesture.btnId);
         }, { passive: false });
 
         window.addEventListener('mousemove', (e) => {
             if (!state.isPositioningMode || !gesture.active) return;
             const btn = state.buttons.find(b => b.id === gesture.btnId);
+            if (!btn) return;
             const rect = document.getElementById('main-canvas').getBoundingClientRect();
             const dx = e.clientX - gesture.startCen.x;
             const dy = e.clientY - gesture.startCen.y;
             btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
             btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
-            renderButtons();
+            updateButtonPositionDOM(gesture.btnId);
         });
 
         window.addEventListener('touchend', () => {
             if (gesture.active) {
                 gesture.active = false;
-                saveState(); // Save on drop/end
+                saveState();
+            }
+            // Release mode on touch for whole-screen target
+            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
             }
         });
         window.addEventListener('mouseup', () => {
@@ -706,28 +858,34 @@
 
             const idx = btn.phraseIndex;
             const audioKey = `${btn.id}_${idx}`;
+            // Capture the phrase text NOW before phraseIndex advances, so error
+            // callbacks can still fall back to the correct phrase.
+            const phraseText = (btn.phrases[idx] || '').trim();
             
             let played = false;
             if (btn.hasAudio && btn.hasAudio[idx]) {
                 const blob = await getAudioBlob(audioKey);
                 if (blob) {
                     played = true;
-                    const url = URL.createObjectURL(blob);
-                    const aud = new Audio(url);
-                    state.isSpeaking = true; 
+                    state.isSpeaking = true;
                     state.playingButtonId = btn.id;
                     updateVisuals();
-                    aud.onended = () => { 
-                        state.isSpeaking = false; 
-                        state.playingButtonId = null; 
-                        updateVisuals(); 
-                        URL.revokeObjectURL(url); 
-                    };
-                    aud.onerror = () => fallbackSpeak(btn);
-                    aud.play().catch(() => fallbackSpeak(btn));
+                    // Use AudioContext playback (iOS-safe) instead of HTMLAudioElement
+                    createAndPlayAudio(blob, {
+                        onEnded: () => {
+                            state.isSpeaking = false;
+                            state.playingButtonId = null;
+                            updateVisuals();
+                        },
+                        onError: () => {
+                            state.isSpeaking = false;
+                            state.playingButtonId = null;
+                            fallbackSpeak(btn, phraseText);
+                        }
+                    });
                 }
             }
-            if (!played) fallbackSpeak(btn);
+            if (!played) fallbackSpeak(btn, phraseText);
 
             const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
             if (valid.length > 1) {
@@ -741,13 +899,22 @@
             }
         }
 
-        function fallbackSpeak(btn) {
-            let txt = btn.phrases[btn.phraseIndex] || btn.phrases.find(p=>p) || "";
-            if(txt.trim() && window.speechSynthesis) {
+        // txt is pre-captured so we always speak the right phrase even if phraseIndex
+        // has already advanced by the time an audio error fires asynchronously.
+        function fallbackSpeak(btn, txt) {
+            if (txt === undefined) txt = (btn.phrases[btn.phraseIndex] || btn.phrases.find(p => p) || '').trim();
+            if (!txt) {
+                // Nothing to speak — ensure speaking indicators are cleared
+                state.isSpeaking = false;
+                state.playingButtonId = null;
+                updateVisuals();
+                return;
+            }
+            if (window.speechSynthesis) {
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(txt);
                 const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
-                if(v) u.voice = v;
+                if (v) u.voice = v;
                 u.rate = 0.9;
                 u.onstart = () => { 
                     state.isSpeaking = true; 
@@ -760,48 +927,85 @@
                     updateVisuals(); 
                 };
                 window.speechSynthesis.speak(u);
+            } else {
+                state.isSpeaking = false;
+                state.playingButtonId = null;
+                updateVisuals();
             }
         }
 
         async function toggleRecording(btnId, phraseIndex, btnElement) {
             if (state.isRecording) {
                 if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
-            } else {
-                try {
-                    saveState();
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const mediaRecorder = new MediaRecorder(stream);
-                    const chunks = [];
-                    mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-                    mediaRecorder.onstop = async () => {
-                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                return;
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Pick the best MIME type for this platform (webm on Chrome/Android, mp4 on iOS/Safari)
+                const mimeType = getSupportedMimeType();
+                const options = mimeType ? { mimeType } : {};
+                const mediaRecorder = new MediaRecorder(stream, options);
+                const chunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) chunks.push(e.data);
+                };
+
+                const cleanup = (saveBlob) => async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    state.isRecording = false;
+                    state.mediaRecorder = null;
+                    if (saveBlob && chunks.length > 0) {
+                        const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
                         await saveAudioBlob(`${btnId}_${phraseIndex}`, blob);
                         const btn = state.buttons.find(b => b.id === btnId);
-                        if(!btn.hasAudio) btn.hasAudio = [false,false,false];
-                        btn.hasAudio[phraseIndex] = true;
+                        if (btn) {
+                            if (!btn.hasAudio) btn.hasAudio = [false, false, false];
+                            btn.hasAudio[phraseIndex] = true;
+                        }
                         saveState();
-                        stream.getTracks().forEach(t => t.stop());
-                        state.isRecording = false;
-                        renderSettingsContent();
-                    };
-                    mediaRecorder.start();
-                    state.isRecording = true;
-                    state.mediaRecorder = mediaRecorder;
-                    btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current"></i>`;
-                    btnElement.classList.add('bg-red-600', 'text-white', 'recording-pulse');
-                    safeIcons();
-                } catch (err) { alert("Mic access denied"); }
+                    }
+                    renderSettingsContent();
+                };
+
+                mediaRecorder.onstop = cleanup(true);
+                mediaRecorder.onerror = cleanup(false);
+
+                // 100 ms timeslices: ensures ondataavailable fires regularly on all browsers
+                // (without a timeslice, Firefox fires it only once at stop)
+                mediaRecorder.start(100);
+                state.isRecording = true;
+                state.mediaRecorder = mediaRecorder;
+                btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current"></i>`;
+                btnElement.classList.add('bg-red-600', 'text-white', 'recording-pulse');
+                safeIcons();
+            } catch (err) {
+                const msg = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+                    ? 'Microphone access was denied. Please allow mic access in your browser settings.'
+                    : err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError'
+                    ? 'No microphone found on this device.'
+                    : err.name === 'NotReadableError'
+                    ? 'Microphone is already in use by another app.'
+                    : 'Could not start recording: ' + (err.message || err.name);
+                alert(msg);
             }
         }
 
-        let activePreview = null;
+        let activePreviewSource = null;
         async function playPreview(btnId, phraseIndex) {
-            if (activePreview) { activePreview.pause(); activePreview = null; }
+            if (activePreviewSource) {
+                try { activePreviewSource.stop(); } catch(e) {}
+                activePreviewSource = null;
+            }
+            // Unlock AudioContext synchronously within this user-gesture handler
+            // so the async getAudioBlob() call below doesn't block playback on iOS.
+            initAudioCtx();
             const blob = await getAudioBlob(`${btnId}_${phraseIndex}`);
             if (blob) {
-                activePreview = new Audio(URL.createObjectURL(blob));
-                activePreview.play();
-                activePreview.onended = () => { activePreview = null; };
+                activePreviewSource = await createAndPlayAudio(blob, {
+                    onEnded: () => { activePreviewSource = null; },
+                    onError: () => { activePreviewSource = null; }
+                });
             }
         }
 
@@ -852,7 +1056,7 @@
                     form.className = 'space-y-6';
                     form.innerHTML = `
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="edit-3" class="w-3 h-3"></i> Label</label><input class="w-full mt-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${editBtn.label}" id="inp-label" placeholder="(Optional)"></div>
+                            <div><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="edit-3" class="w-3 h-3"></i> Label</label><input class="w-full mt-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${escHtml(editBtn.label)}" id="inp-label" placeholder="(Optional)"></div>
                             <div><label class="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2"><i data-lucide="palette" class="w-3 h-3"></i> Color</label><div class="grid grid-cols-4 gap-2 mt-2" id="grid-color"></div></div>
                         </div>
                         <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
@@ -896,7 +1100,7 @@
                         const has = editBtn.hasAudio && editBtn.hasAudio[idx];
                         const w = document.createElement('div');
                         w.className = 'flex items-center gap-2';
-                        w.innerHTML = `<div class="relative flex-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-600">${idx+1}</span><input class="w-full pl-8 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${p}" placeholder="Phrase"></div>`;
+                        w.innerHTML = `<div class="relative flex-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-600">${idx+1}</span><input class="w-full pl-8 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white outline-none focus:border-indigo-500" value="${escHtml(p)}" placeholder="Phrase"></div>`;
                         w.querySelector('input').oninput = (e) => editBtn.phrases[idx] = e.target.value;
                         const rec = document.createElement('button');
                         rec.className = `p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 ${has ? 'border-indigo-500/30 text-indigo-400 bg-indigo-500/10' : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:text-white'}`;
@@ -947,6 +1151,9 @@
             } else {
                  const sys = document.createElement('div');
                  sys.className = 'space-y-6';
+                 const voiceOptions = state.voices.length
+                     ? state.voices.map(v => `<option value="${v.voiceURI}" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
+                     : '<option value="">No voices available</option>';
                  sys.innerHTML = `
                     <div>
                         <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
@@ -975,9 +1182,36 @@
                         <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
                             <div class="flex justify-between mb-2">
                                 <span class="text-[10px] uppercase font-bold text-zinc-500">Debounce Time</span>
-                                <span class="text-[10px] font-mono text-indigo-400">${state.debounceTime}s</span>
+                                <span class="text-[10px] font-mono text-indigo-400" id="sys-debounce-val">${state.debounceTime}s</span>
                             </div>
                             <input type="range" min="0" max="3" step="0.5" value="${state.debounceTime}" class="w-full h-2 bg-zinc-800 rounded-lg" id="sys-debounce">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="mic-2" class="w-3 h-3"></i> TTS Voice
+                        </label>
+                        <select id="sys-voice" class="w-full p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm outline-none focus:border-indigo-500 cursor-pointer">${voiceOptions}</select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="type" class="w-3 h-3"></i> Button Label
+                        </label>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase ${state.labelPos==='on'?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="lbl-on">On Button</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase ${state.labelPos==='under'?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="lbl-under">Under</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase ${state.labelPos==='off'?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="lbl-off">Hidden</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="rotate-cw" class="w-3 h-3"></i> Screen Orientation
+                        </label>
+                        <div class="grid grid-cols-5 gap-2">
+                            ${ORIENTATIONS.map(o => `<button class="p-2 rounded-xl border text-[10px] font-bold uppercase ${state.orientationMode===o.id?'bg-zinc-800 border-indigo-500 text-white':'bg-zinc-950 border-zinc-800 text-zinc-500'}" id="ori-${o.id}">${o.label}</button>`).join('')}
                         </div>
                     </div>
 
@@ -990,9 +1224,10 @@
                                 <i data-lucide="move" class="w-4 h-4"></i> Unlock & Move
                             </button>
                             <button class="w-full p-4 border border-zinc-800 bg-zinc-950 rounded-xl text-zinc-400 text-xs font-bold uppercase hover:bg-zinc-900 flex items-center justify-center gap-2" id="sys-fs">
-                                <i data-lucide="${document.fullscreenElement ? 'minimize' : 'maximize'}" class="w-4 h-4"></i> 
+                                <i data-lucide="${document.fullscreenElement ? 'minimize' : 'maximize'}" class="w-4 h-4"></i>
                                 ${document.fullscreenElement ? 'Exit Full Screen' : 'Enter Full Screen'}
                             </button>
+                            ${deferredInstallPrompt ? `<button class="w-full p-4 border border-indigo-700 bg-indigo-600/10 rounded-xl text-indigo-300 text-xs font-bold uppercase hover:bg-indigo-600/20 flex items-center justify-center gap-2 transition-all" id="sys-install"><i data-lucide="download" class="w-4 h-4"></i> Add to Home Screen</button>` : ''}
                         </div>
                     </div>
 
@@ -1015,9 +1250,34 @@
                  sys.querySelector('#sys-rel').onclick=()=>{state.activationMode='release'; renderSettingsContent(); saveState(); }
                  sys.querySelector('#sys-hap').onclick=()=>{state.hapticsEnabled=!state.hapticsEnabled; renderSettingsContent(); saveState(); }
                  sys.querySelector('#sys-snd').onclick=()=>{state.audioCueEnabled=!state.audioCueEnabled; renderSettingsContent(); saveState(); }
-                 sys.querySelector('#sys-debounce').oninput=(e)=>{state.debounceTime=Number(e.target.value); renderSettingsContent(); saveState(); }
+                 sys.querySelector('#sys-debounce').oninput=(e)=>{
+                     state.debounceTime=Number(e.target.value);
+                     const lbl = document.getElementById('sys-debounce-val');
+                     if (lbl) lbl.textContent = state.debounceTime + 's';
+                     saveState();
+                 };
+                 if (sys.querySelector('#sys-voice')) {
+                     sys.querySelector('#sys-voice').onchange=(e)=>{state.selectedVoiceURI=e.target.value; saveState();};
+                 }
+                 sys.querySelector('#lbl-on').onclick=()=>{state.labelPos='on'; renderSettingsContent(); saveState(); renderButtons();}
+                 sys.querySelector('#lbl-under').onclick=()=>{state.labelPos='under'; renderSettingsContent(); saveState(); renderButtons();}
+                 sys.querySelector('#lbl-off').onclick=()=>{state.labelPos='off'; renderSettingsContent(); saveState(); renderButtons();}
+                 ORIENTATIONS.forEach(o => {
+                     const el = sys.querySelector(`#ori-${o.id}`);
+                     if (el) el.onclick = () => { state.orientationMode = o.id; renderSettingsContent(); saveState(); updateVisuals(); };
+                 });
                  sys.querySelector('#sys-unlock').onclick=()=>{closeSettings(); togglePositioning(true);}
                  sys.querySelector('#sys-fs').onclick=()=>{if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e=>{}); else document.exitFullscreen();}
+                 const installBtn = sys.querySelector('#sys-install');
+                 if (installBtn) {
+                     installBtn.onclick = async () => {
+                         if (!deferredInstallPrompt) return;
+                         deferredInstallPrompt.prompt();
+                         await deferredInstallPrompt.userChoice;
+                         deferredInstallPrompt = null;
+                         renderSettingsContent();
+                     };
+                 }
                  
                  // Storage Logic
                  sys.querySelector('#btn-clear-storage').onclick = () => {
@@ -1055,6 +1315,26 @@
                 if (state.buttons[idx]) activateSwitch(state.buttons[idx].id);
             }
         });
+
+        // --- PWA: INSTALL PROMPT ---
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            // Re-render system tab if open so the install button appears
+            if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
+        });
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
+        });
+
+        // --- SERVICE WORKER REGISTRATION ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => { /* SW unavailable – file:// or blocked */ });
+            });
+        }
 
     </script>
 </body>
