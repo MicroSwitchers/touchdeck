@@ -1307,6 +1307,15 @@
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
+            // iOS fix: Determine if we'll use TTS synchronously (before any await)
+            const willUseTTS = !btn.hasAudio || !btn.hasAudio[idx];
+            
+            // iOS fix: Call TTS immediately if no audio, to preserve user gesture chain
+            if (willUseTTS) {
+                fallbackSpeak(btn, phraseText);
+            }
+
+            // Try to play recorded audio if available
             let played = false;
             if (btn.hasAudio && btn.hasAudio[idx]) {
                 const blob = await getAudioBlob(audioKey);
@@ -1329,12 +1338,12 @@
                             currentPlaybackSource = null;
                             state.isSpeaking = false;
                             state.playingButtonId = null;
-                            fallbackSpeak(btn, phraseText);
+                            // Note: TTS fallback on audio error won't work on iOS (outside user gesture)
+                            // but this is an edge case - the audio file existed but failed to play
                         }
                     });
                 }
             }
-            if (!played) fallbackSpeak(btn, phraseText);
 
             const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
             if (valid.length > 1) {
@@ -1368,7 +1377,10 @@
                     }
                 }
                 
+                // iOS fix: Resume before cancel (prevents iOS from blocking TTS)
+                try { window.speechSynthesis.resume(); } catch(e) {}
                 window.speechSynthesis.cancel();
+                
                 const u = new SpeechSynthesisUtterance(txt);
                 
                 // iOS fix: Only set voice if we have voices available
@@ -1389,10 +1401,8 @@
                     updateVisuals(); 
                 };
                 
-                // iOS fix: Small delay before speaking
-                setTimeout(() => {
-                    window.speechSynthesis.speak(u);
-                }, 10);
+                // iOS fix: Call speak() synchronously (no setTimeout) to maintain user gesture chain
+                window.speechSynthesis.speak(u);
             } else {
                 state.isSpeaking = false;
                 state.playingButtonId = null;
@@ -2030,10 +2040,9 @@
                             utterance.rate = 1.1; // Slightly faster for quick scanning
                             utterance.volume = 0.8;
                             
-                            // iOS fix: Small delay before speaking
-                            setTimeout(() => {
-                                window.speechSynthesis.speak(utterance);
-                            }, 10);
+                            // iOS fix: Resume and speak synchronously
+                            try { window.speechSynthesis.resume(); } catch(e) {}
+                            window.speechSynthesis.speak(utterance);
                         }
                     }
                 } else {
