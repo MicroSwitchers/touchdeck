@@ -1005,7 +1005,7 @@
                     if (state.isPositioningMode) return;
                     if (state.activationMode === 'press') {
                         e.stopPropagation();
-                        e.preventDefault();
+                        // e.preventDefault(); // Removed to allow proper gesture recognition for TTS unlock
                         lastTouchTime = Date.now();
                         activateSwitch(btn.id);
                     }
@@ -1310,13 +1310,9 @@
         window.addEventListener('touchstart', (e) => {
             if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
                 if (state.buttons.length === 1 && state.touchTarget === 'screen') {
-                    // Prevent default to avoid mouse emulation double-firing if we are taking over the screen
-                    // But we must be careful not to block settings interactions if we were wrong about the context?
-                    // We checked !state.showSettings.
-                    // If we preventDefault, we might block scrolling? But with 1 button full-screen, scrolling is likely not intended/possible?
-                    // However, to be safe and ensure 'mouse emulation' doesn't fire click/mousedown later:
-                    // e.preventDefault(); 
-                    // Actually, if we don't preventDefault, mousedown will fire. We guard mousedown with screenLastTouch check.
+                    // Prevent default to avoid mouse emulation double-firing if we are taking over the screen.
+                    // However, we allow default for potential TTS unlock similar to button logic if needed.
+                    // But if we remove preventDefault, mousedown will fire. We guard mousedown with screenLastTouch check.
                     screenLastTouch = Date.now();
                     activateSwitch(state.buttons[0].id);
                 }
@@ -2264,16 +2260,18 @@
         function primeTTS() {
             if (ttsPrimed) return;
             ttsPrimed = true;
+            
+            // Resume AudioContext first (critical for iOS audio)
+            initAudioCtx();
+
             if (window.speechSynthesis) {
-                // Speak a silent utterance to unlock the synthesis engine on iOS
-                const u = new SpeechSynthesisUtterance('');
+                // Speak a silent utterance to unlock the synthesis engine on iOS.
+                const u = new SpeechSynthesisUtterance(''); 
                 u.volume = 0;
                 window.speechSynthesis.speak(u);
                 // Immediately cancel to not block queue but keep engine 'warm'
                 window.speechSynthesis.cancel();
             }
-            // Also resume AudioContext if suspended
-            initAudioCtx();
         }
         // Capture phase ensures we run before other handlers might stopPropagation
         window.addEventListener('touchstart', primeTTS, { once: true, capture: true });
