@@ -751,6 +751,13 @@
                 loadVoices();
                 // iOS requires a small delay to ensure voices are loaded
                 setTimeout(loadVoices, 100);
+
+                // iOS: on first touch anywhere, prime the speech engine.
+                // Some iOS versions start the engine in a suspended state and
+                // need resume() called from a user gesture before speak() will work.
+                document.addEventListener('touchstart', function primeSpeech() {
+                    window.speechSynthesis.resume();
+                }, { once: true, passive: true });
             }
 
             renderButtons();
@@ -1300,7 +1307,15 @@
             // utterance is already queued and plays normally as the fallback.
             let pendingUtterance = null;
             if (window.speechSynthesis && phraseText) {
-                window.speechSynthesis.cancel();
+                // Only cancel if something is already queued/speaking.
+                // Unconditional cancel() leaves the iOS engine in a mid-reset state
+                // where the immediately following speak() is silently dropped.
+                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                    window.speechSynthesis.cancel();
+                }
+                // iOS suspends the engine after the page is backgrounded or on cold
+                // start — resume() re-activates it before we speak.
+                window.speechSynthesis.resume();
                 const u = new SpeechSynthesisUtterance(phraseText);
                 u.rate = 0.9;
                 if (state.voices.length === 0) state.voices = window.speechSynthesis.getVoices();
@@ -1309,7 +1324,8 @@
                     if (v) u.voice = v;
                 }
                 u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btn.id; updateVisuals(); };
-                u.onend = u.onerror = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
+                u.onend = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
+                u.onerror = (e) => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); console.warn('TTS error:', e.error); };
                 window.speechSynthesis.speak(u);
                 pendingUtterance = u;
             }
@@ -1384,27 +1400,19 @@
                     }
                 }
                 
-                window.speechSynthesis.cancel();
+                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                    window.speechSynthesis.cancel();
+                }
+                window.speechSynthesis.resume();
                 const u = new SpeechSynthesisUtterance(txt);
-                
-                // iOS fix: Only set voice if we have voices available
                 if (state.voices.length > 0) {
                     const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
                     if (v) u.voice = v;
                 }
-                
                 u.rate = 0.9;
-                u.onstart = () => { 
-                    state.isSpeaking = true; 
-                    state.playingButtonId = btn.id;
-                    updateVisuals(); 
-                };
-                u.onend = u.onerror = () => { 
-                    state.isSpeaking = false; 
-                    state.playingButtonId = null; 
-                    updateVisuals(); 
-                };
-                
+                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btn.id; updateVisuals(); };
+                u.onend = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
+                u.onerror = (e) => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); console.warn('TTS error:', e.error); };
                 window.speechSynthesis.speak(u);
             } else {
                 state.isSpeaking = false;
