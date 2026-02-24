@@ -1274,23 +1274,6 @@
             }
 
             if (state.hapticsEnabled && navigator.vibrate) try{ navigator.vibrate(50); }catch(e){}
-            
-            if (state.audioCueEnabled) {
-                 try {
-                     const ctx = initAudioCtx();
-                     if (ctx) {
-                         const osc = ctx.createOscillator();
-                         const g = ctx.createGain();
-                         osc.connect(g); g.connect(ctx.destination);
-                         osc.frequency.setValueAtTime(600, ctx.currentTime);
-                         osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime+0.15);
-                         g.gain.setValueAtTime(0, ctx.currentTime);
-                         g.gain.linearRampToValueAtTime(0.2, ctx.currentTime+0.02);
-                         g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
-                         osc.start(ctx.currentTime); osc.stop(ctx.currentTime+0.15);
-                     }
-                 } catch(e){}
-            }
 
             state.activeButtonId = btnId;
             updateVisuals();
