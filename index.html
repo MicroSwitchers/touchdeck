@@ -79,6 +79,9 @@
         .recording-pulse { animation: pulse-record 1.5s infinite ease-in-out; }
 
         /* ── Slider styling ───────────────────────────────────────────────── */
+        /* ── Select dropdown option styling (prevents white-on-white) ──── */
+        select option { background: #1e1e2e; color: #e4e4e7; }
+
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none; appearance: none;
@@ -531,6 +534,51 @@
             return audioCtx;
         }
 
+        // --- iOS SPEECH SYNTHESIS UNLOCK ---
+        // iOS/iPadOS requires speechSynthesis.speak() to be called synchronously
+        // within a user gesture the very first time. After that initial "unlock",
+        // subsequent calls work from any context (timers, async callbacks, etc.).
+        let speechUnlocked = false;
+        let iOSKeepAliveTimer = null;
+        const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        function unlockSpeechSynthesis() {
+            if (speechUnlocked || !window.speechSynthesis) return;
+            speechUnlocked = true;
+            // Speak a near-silent utterance to authorize the API on iOS
+            const warmUp = new SpeechSynthesisUtterance(' ');
+            warmUp.volume = 0.01;
+            warmUp.rate = 10;
+            warmUp.onend = warmUp.onerror = () => {}; // swallow events
+            window.speechSynthesis.speak(warmUp);
+            // Also try to load voices if they haven't loaded yet
+            if (state.voices.length === 0) {
+                state.voices = window.speechSynthesis.getVoices();
+            }
+        }
+
+        // iOS pauses long utterances after ~15 seconds. Periodically calling
+        // pause()/resume() keeps them alive.
+        function startIOSKeepAlive() {
+            stopIOSKeepAlive();
+            if (!isIOSDevice) return;
+            iOSKeepAliveTimer = setInterval(() => {
+                if (window.speechSynthesis && window.speechSynthesis.speaking) {
+                    window.speechSynthesis.pause();
+                    window.speechSynthesis.resume();
+                }
+            }, 10000);
+        }
+        function stopIOSKeepAlive() {
+            if (iOSKeepAliveTimer) { clearInterval(iOSKeepAliveTimer); iOSKeepAliveTimer = null; }
+        }
+
+        // Attach unlock to first user interaction (multiple event types for reliability)
+        ['touchstart', 'touchend', 'click', 'pointerdown'].forEach(evt => {
+            document.addEventListener(evt, unlockSpeechSynthesis, { once: true, passive: true });
+        });
+
         // blob.arrayBuffer() polyfill for iOS <= 14.4 which lacks the method.
         function blobToArrayBuffer(blob) {
             if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
@@ -749,8 +797,10 @@
                 };
                 window.speechSynthesis.onvoiceschanged = loadVoices;
                 loadVoices();
-                // iOS requires a small delay to ensure voices are loaded
+                // iOS can be very slow to enumerate voices; retry several times
                 setTimeout(loadVoices, 100);
+                setTimeout(loadVoices, 500);
+                setTimeout(loadVoices, 1500);
             }
 
             renderButtons();
@@ -1307,15 +1357,6 @@
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
-            // iOS fix: Determine if we'll use TTS synchronously (before any await)
-            const willUseTTS = !btn.hasAudio || !btn.hasAudio[idx];
-            
-            // iOS fix: Call TTS immediately if no audio, to preserve user gesture chain
-            if (willUseTTS) {
-                fallbackSpeak(btn, phraseText);
-            }
-
-            // Try to play recorded audio if available
             let played = false;
             if (btn.hasAudio && btn.hasAudio[idx]) {
                 const blob = await getAudioBlob(audioKey);
@@ -1338,12 +1379,12 @@
                             currentPlaybackSource = null;
                             state.isSpeaking = false;
                             state.playingButtonId = null;
-                            // Note: TTS fallback on audio error won't work on iOS (outside user gesture)
-                            // but this is an edge case - the audio file existed but failed to play
+                            fallbackSpeak(btn, phraseText);
                         }
                     });
                 }
             }
+            if (!played) fallbackSpeak(btn, phraseText);
 
             const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
             if (valid.length > 1) {
@@ -1369,40 +1410,47 @@
                 return;
             }
             if (window.speechSynthesis) {
-                // iOS fix: Ensure voices are loaded
+                // iOS: Ensure voices are loaded (may arrive late on iOS)
                 if (state.voices.length === 0) {
                     state.voices = window.speechSynthesis.getVoices();
                     if (state.voices.length > 0 && !state.selectedVoiceURI) {
                         state.selectedVoiceURI = state.voices[0].voiceURI;
                     }
                 }
-                
-                // iOS fix: Resume before cancel (prevents iOS from blocking TTS)
-                try { window.speechSynthesis.resume(); } catch(e) {}
-                window.speechSynthesis.cancel();
-                
-                const u = new SpeechSynthesisUtterance(txt);
-                
-                // iOS fix: Only set voice if we have voices available
-                if (state.voices.length > 0) {
-                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
-                    if (v) u.voice = v;
+
+                // Helper to create and dispatch the utterance
+                const doSpeak = () => {
+                    const u = new SpeechSynthesisUtterance(txt);
+                    // Only set voice if we have voices available
+                    if (state.voices.length > 0) {
+                        const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
+                        if (v) u.voice = v;
+                    }
+                    u.rate = 0.9;
+                    u.onstart = () => {
+                        state.isSpeaking = true;
+                        state.playingButtonId = btn.id;
+                        startIOSKeepAlive();
+                        updateVisuals();
+                    };
+                    u.onend = u.onerror = () => {
+                        state.isSpeaking = false;
+                        state.playingButtonId = null;
+                        stopIOSKeepAlive();
+                        updateVisuals();
+                    };
+                    window.speechSynthesis.speak(u);
+                };
+
+                // On iOS, cancel() immediately before speak() can silently
+                // swallow the utterance. We cancel first, then give iOS a
+                // tick to process the cancellation before speaking.
+                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                    window.speechSynthesis.cancel();
+                    setTimeout(doSpeak, isIOSDevice ? 80 : 10);
+                } else {
+                    doSpeak();
                 }
-                
-                u.rate = 0.9;
-                u.onstart = () => { 
-                    state.isSpeaking = true; 
-                    state.playingButtonId = btn.id;
-                    updateVisuals(); 
-                };
-                u.onend = u.onerror = () => { 
-                    state.isSpeaking = false; 
-                    state.playingButtonId = null; 
-                    updateVisuals(); 
-                };
-                
-                // iOS fix: Call speak() synchronously (no setTimeout) to maintain user gesture chain
-                window.speechSynthesis.speak(u);
             } else {
                 state.isSpeaking = false;
                 state.playingButtonId = null;
@@ -1679,8 +1727,8 @@
                  const sys = document.createElement('div');
                  sys.className = 'space-y-6';
                  const voiceOptions = state.voices.length
-                     ? state.voices.map(v => `<option value="${v.voiceURI}" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
-                     : '<option value="">No voices available</option>';
+                     ? state.voices.map(v => `<option value="${v.voiceURI}" style="background:#1e1e2e;color:#e4e4e7" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
+                     : '<option value="" style="background:#1e1e2e;color:#e4e4e7">No voices available</option>';
                  const activeToggle = 'text-indigo-200 border-indigo-400/70';
                  const activeToggleBg = 'linear-gradient(135deg,rgba(79,70,229,0.28),rgba(124,58,237,0.18))';
                  const inactiveToggle = 'text-zinc-400 border-white/10 hover:text-zinc-200';
@@ -2024,25 +2072,29 @@
                         const btn = state.buttons[scanIdx];
                         const labelText = (btn?.label || '').trim();
                         if (labelText) {
-                            // iOS fix: Ensure voices are loaded
+                            // iOS: Ensure voices are loaded
                             if (state.voices.length === 0) {
                                 state.voices = window.speechSynthesis.getVoices();
                             }
-                            
-                            const utterance = new SpeechSynthesisUtterance(labelText);
-                            
-                            // iOS fix: Only set voice if available
-                            if (state.voices.length > 0) {
-                                const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
-                                if (voice) utterance.voice = voice;
+
+                            const doScanSpeak = () => {
+                                const utterance = new SpeechSynthesisUtterance(labelText);
+                                if (state.voices.length > 0) {
+                                    const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                                    if (voice) utterance.voice = voice;
+                                }
+                                utterance.rate = 1.1;
+                                utterance.volume = 0.8;
+                                window.speechSynthesis.speak(utterance);
+                            };
+
+                            // Cancel any in-progress scan announcement, with iOS-safe delay
+                            if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+                                window.speechSynthesis.cancel();
+                                setTimeout(doScanSpeak, isIOSDevice ? 80 : 10);
+                            } else {
+                                doScanSpeak();
                             }
-                            
-                            utterance.rate = 1.1; // Slightly faster for quick scanning
-                            utterance.volume = 0.8;
-                            
-                            // iOS fix: Resume and speak synchronously
-                            try { window.speechSynthesis.resume(); } catch(e) {}
-                            window.speechSynthesis.speak(utterance);
                         }
                     }
                 } else {
