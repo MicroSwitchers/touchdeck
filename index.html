@@ -1,78 +1,2516 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iOS TTS Tester</title>
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+    <!-- Primary Meta -->
+    <meta name="description"
+        content="A privacy-first AAC communication app. Tap large buttons to speak words and phrases.">
+    <meta name="author" content="TouchTab">
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- PWA / Standalone Mode -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-title" content="TouchTab">
+    <meta name="application-name" content="TouchTab">
+    <meta name="msapplication-TileColor" content="#09090b">
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="apple-touch-icon" href="icons/icon.svg">
+
+    <!-- Open Graph (for link sharing) -->
+    <meta property="og:title" content="TouchTab – Tap to Words">
+    <meta property="og:description" content="A privacy-first AAC communication app for tablets.">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="icons/icon.svg">
+
+    <title>Tap to Words</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+
     <style>
-        body { font-family: -apple-system, system-ui; padding: 20px; display: flex; flex-direction: column; gap: 15px; background: #f4f4f9; }
-        textarea { width: 100%; height: 100px; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; }
-        button { padding: 15px; border: none; border-radius: 8px; background-color: #007AFF; color: white; font-size: 18px; font-weight: bold; cursor: pointer; }
-        button:active { background-color: #0051a8; }
-        .status { font-size: 12px; color: #666; }
+        body {
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow: hidden;
+            background-color: #09090b;
+            /* zinc-950 */
+            overscroll-behavior: none;
+        }
+
+        /* ── Canvas ambient gradient ──────────────────────────────────────── */
+        #main-canvas {
+            background:
+                radial-gradient(ellipse 70% 60% at 15% 40%, rgba(99, 102, 241, 0.10) 0%, transparent 100%),
+                radial-gradient(ellipse 55% 45% at 85% 25%, rgba(168, 85, 247, 0.07) 0%, transparent 100%),
+                radial-gradient(ellipse 50% 55% at 65% 85%, rgba(59, 130, 246, 0.06) 0%, transparent 100%);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #6366f1;
+            border-radius: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #818cf8;
+        }
+
+        @keyframes bounce-custom {
+
+            0%,
+            100% {
+                transform: translateY(-30%);
+                animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+            }
+
+            50% {
+                transform: none;
+                animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+            }
+        }
+
+        .animate-bounce-custom {
+            animation: bounce-custom 0.85s infinite;
+        }
+
+        @keyframes pulse-record {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.1);
+                opacity: 0.8;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .recording-pulse {
+            animation: pulse-record 1.5s infinite ease-in-out;
+        }
+
+        /* ── Slider styling ───────────────────────────────────────────────── */
+        /* ── Select dropdown option styling (prevents white-on-white) ──── */
+        select option {
+            background: #1e1e2e;
+            color: #e4e4e7;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 0 3px #6366f1, 0 2px 8px rgba(99, 102, 241, 0.5);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: linear-gradient(to right, #6366f1, #a855f7);
+            border-radius: 3px;
+        }
+
+        /* ── iOS / iPadOS fixes ──────────────────────────────────────────── */
+        html {
+            height: 100%;
+        }
+
+        html,
+        body {
+            min-height: -webkit-fill-available;
+        }
+
+        /* Safe-area insets: keep gear button clear of notch / Dynamic Island */
+        #header {
+            padding-top: max(1.5rem, env(safe-area-inset-top, 1.5rem));
+            padding-right: max(1.5rem, env(safe-area-inset-right, 1.5rem));
+        }
+
+        /* Keep positioning-mode bottom buttons above the home indicator */
+        #pos-overlay-footer {
+            padding-bottom: max(2rem, env(safe-area-inset-bottom, 2rem));
+        }
+
+        /* Allow finger-scrolling inside the settings panel. */
+        #settings-content {
+            touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
+            overflow-y: scroll;
+        }
+
+        /* Vendor-prefixed backdrop-filter for iOS 12-14 */
+        #settings-backdrop {
+            -webkit-backdrop-filter: blur(28px);
+            backdrop-filter: blur(28px);
+        }
+
+        #confirm-modal {
+            -webkit-backdrop-filter: blur(6px);
+            backdrop-filter: blur(6px);
+        }
+
+        /* Remove grey flash on tap and suppress native long-press callout */
+        button,
+        [role="button"] {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+        }
+
+        /* ── Button entrance animation ───────────────────────────────────── */
+        @keyframes btn-enter {
+            from {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.72);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(var(--btn-scale, 1));
+            }
+        }
+
+        .btn-enter {
+            animation: btn-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        /* ── Physical button depth ────────────────────────────────────────── */
+        .app-button {
+            box-shadow:
+                /* Cast shadow (button elevated above canvas) */
+                0 28px 55px -8px rgba(0, 0, 0, 0.75),
+                0 12px 24px -6px rgba(0, 0, 0, 0.55),
+                0 4px 8px -2px rgba(0, 0, 0, 0.40),
+                /* Lit top rim (light from above) */
+                inset 0 3px 6px rgba(255, 255, 255, 0.28),
+                /* Dark bottom inner (adds cylinder depth) */
+                inset 0 -5px 14px rgba(0, 0, 0, 0.30);
+            transition: box-shadow 0.08s ease;
+        }
+
+        /* ── Speaking border (simple, visible indicator) ───────────────────── */
+        .speaking-border {
+            outline: 4px solid var(--speaking-color, rgba(255, 255, 255, 0.9));
+            outline-offset: 3px;
+        }
+
+        /* ── Range input accent ───────────────────────────────────────────── */
+        input[type=range] {
+            accent-color: #6366f1;
+        }
+
+        /* ── Hint toast ───────────────────────────────────────────────────── */
+        #start-hint {
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        /* ── Settings section card ────────────────────────────────────────── */
+        .sys-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 0.875rem;
+            padding: 1rem;
+        }
+
+        /* ── Settings modal gradient accent strip ─────────────────────────── */
+        #settings-accent-strip {
+            height: 3px;
+            background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);
+            border-radius: 1.5rem 1.5rem 0 0;
+        }
+
+        /* ── Scanning mode highlight ──────────────────────────────────────── */
+        /* --scan-color / --scan-glow are set per-button in updateScanHighlight */
+        @keyframes scan-pulse {
+
+            0%,
+            100% {
+                box-shadow:
+                    0 0 0 4px transparent,
+                    0 0 0 9px var(--scan-color, rgba(250, 204, 21, 0.9)),
+                    0 0 40px var(--scan-glow, rgba(250, 204, 21, 0.4)),
+                    0 28px 55px -8px rgba(0, 0, 0, 0.75),
+                    inset 0 3px 6px rgba(255, 255, 255, 0.28),
+                    inset 0 -5px 14px rgba(0, 0, 0, 0.30);
+            }
+
+            50% {
+                box-shadow:
+                    0 0 0 4px transparent,
+                    0 0 0 12px var(--scan-color, rgba(250, 204, 21, 1.0)),
+                    0 0 60px var(--scan-glow, rgba(250, 204, 21, 0.6)),
+                    0 28px 55px -8px rgba(0, 0, 0, 0.75),
+                    inset 0 3px 6px rgba(255, 255, 255, 0.28),
+                    inset 0 -5px 14px rgba(0, 0, 0, 0.30);
+            }
+        }
+
+        .scan-highlight {
+            animation: scan-pulse 0.7s ease-in-out infinite !important;
+        }
+
+        /* ── Output display bar ───────────────────────────────────────────── */
+        #output-bar {
+            transition: opacity 0.4s ease;
+        }
+
+        #output-bar.hiding {
+            opacity: 0 !important;
+        }
     </style>
 </head>
-<body>
 
-    <h2>iOS TTS Test</h2>
-    <textarea id="textInput" placeholder="Type something here...">Hello! This is a test of the iOS Web Speech API. If you hear this, it works!</textarea>
-    
-    <button id="speakBtn">Speak Aloud</button>
-    <p class="status" id="statusMsg">Waiting for user interaction...</p>
+<body class="text-white h-screen w-screen flex flex-col overflow-hidden bg-zinc-950">
+
+    <!-- App Container -->
+    <div id="app-container" class="relative w-full h-full flex flex-col transition-transform duration-300 ease-out">
+
+        <!-- Header -->
+        <header id="header"
+            class="absolute top-0 left-0 w-full p-6 flex justify-end items-center z-40 pointer-events-none transition-opacity duration-300">
+            <div class="relative pointer-events-auto group">
+                <button id="settings-trigger"
+                    class="relative p-4 rounded-full transition-all duration-500 ease-out bg-transparent hover:bg-zinc-800/50 header-rotate">
+                    <i data-lucide="settings" id="settings-icon"
+                        class="w-6 h-6 text-zinc-600 group-hover:text-zinc-400 transition-colors duration-300"></i>
+                    <svg class="absolute inset-0 w-full h-full -rotate-90 pointer-events-none p-1">
+                        <circle cx="50%" cy="50%" r="20" fill="none" stroke="currentColor" stroke-width="3"
+                            class="text-zinc-800"></circle>
+                        <circle id="hold-progress-ring" cx="50%" cy="50%" r="20" fill="none" stroke="currentColor"
+                            stroke-width="3" stroke-linecap="round" stroke-dasharray="125.6" stroke-dashoffset="125.6"
+                            class="text-indigo-500 transition-all duration-75"></circle>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Positioning Overlay -->
+        <div id="positioning-overlay"
+            class="absolute inset-0 z-30 pointer-events-none hidden transition-transform duration-300">
+            <div
+                class="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,black,transparent)]">
+            </div>
+            <div class="absolute top-8 left-0 w-full flex justify-center">
+                <div class="text-white px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-500"
+                    style="background:linear-gradient(135deg,#4f46e5,#7c3aed);box-shadow:0 8px 32px rgba(99,102,241,0.45)">
+                    <i data-lucide="move" class="w-5 h-5 animate-pulse"></i>
+                    <span>Auto Arrange • Drag to Move • Pinch / Scroll to Resize</span>
+                </div>
+            </div>
+            <div class="absolute top-24 right-8 pointer-events-auto">
+                <button id="toggle-output-bar-btn"
+                    class="text-white px-4 py-3 rounded-xl font-semibold text-sm shadow-lg flex items-center gap-2 transition-all hover:brightness-110"
+                    style="background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.35);backdrop-filter:blur(8px)">
+                    <i data-lucide="message-square" class="w-4 h-4"></i>
+                    <span id="output-bar-toggle-label">Voice Readout: On</span>
+                </button>
+            </div>
+            <div id="pos-overlay-footer"
+                class="absolute bottom-0 left-0 w-full flex justify-center gap-4 pointer-events-auto pb-8">
+                <button id="auto-arrange-btn"
+                    class="text-white px-6 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 transition-all hover:brightness-110"
+                    style="background:rgba(16,185,129,0.12);border:1px solid rgba(52,211,153,0.35);backdrop-filter:blur(8px)">
+                    <i data-lucide="grid-3x3" class="w-5 h-5"></i> Auto Arrange
+                </button>
+                <button id="reset-pos-btn"
+                    class="text-white px-6 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 transition-all hover:brightness-110"
+                    style="background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);backdrop-filter:blur(8px)">
+                    <i data-lucide="rotate-ccw" class="w-5 h-5"></i> Reset
+                </button>
+                <button id="lock-pos-btn"
+                    class="text-white px-8 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 transition-all hover:brightness-110"
+                    style="background:linear-gradient(135deg,#059669,#047857);box-shadow:0 8px 24px rgba(5,150,105,0.4)">
+                    <i data-lucide="lock" class="w-5 h-5"></i> Lock Positions
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Canvas -->
+        <main id="main-canvas" class="flex-1 relative w-full h-full overflow-hidden z-10 touch-none">
+            <!-- Buttons injected here -->
+        </main>
+
+        <!-- Scan mode overlay: sits above canvas, captures all input when scanning is active -->
+        <div id="scan-overlay" class="absolute inset-0 hidden cursor-pointer" style="z-index:25;touch-action:none">
+        </div>
+
+        <!-- Output Display Bar: shows the phrase that was just spoken -->
+        <div id="output-bar" class="absolute z-40 pointer-events-none"
+            style="opacity:0;left:50%;top:92%;transform:translate(-50%,-50%) scale(1)">
+            <div class="px-8 py-4 rounded-2xl text-center"
+                style="background:rgba(0,0,0,0.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.15);box-shadow:0 8px 40px rgba(0,0,0,0.55);max-width:min(480px,88vw)">
+                <span id="output-text" class="text-2xl font-bold text-white leading-snug"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 hidden">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-xl transition-opacity" id="settings-backdrop"></div>
+        <div
+            class="relative w-full max-w-2xl bg-[#0d0d12] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+            <!-- Gradient accent strip -->
+            <div id="settings-accent-strip"></div>
+            <div class="bg-[#0d0d12] border-b border-white/8 shrink-0">
+                <div class="flex justify-between items-center p-5">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-xl"
+                            style="background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(168,85,247,0.15));border:1px solid rgba(99,102,241,0.3)">
+                            <i data-lucide="settings" class="w-5 h-5 text-indigo-300"></i>
+                        </div>
+                        <h2 class="text-xl font-black tracking-tight"
+                            style="background:linear-gradient(90deg,#fff,#a1a1aa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">
+                            Settings</h2>
+                    </div>
+                    <button id="close-settings-top"
+                        class="p-2 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-all"><i
+                            data-lucide="x" class="w-6 h-6"></i></button>
+                </div>
+                <div class="flex px-5 gap-1">
+                    <button id="tab-buttons"
+                        class="flex-1 py-3 text-sm font-black uppercase tracking-wide border-b-2 transition-all border-indigo-400 text-white">Buttons</button>
+                    <button id="tab-system"
+                        class="flex-1 py-3 text-sm font-black uppercase tracking-wide border-b-2 transition-all border-transparent text-zinc-500 hover:text-zinc-300">System</button>
+                </div>
+            </div>
+            <div id="settings-content" class="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1"></div>
+            <div class="p-4 border-t border-white/8 bg-[#0d0d12] shrink-0">
+                <button id="close-settings-btn"
+                    class="w-full py-4 text-white font-black rounded-xl transition-all active:scale-[0.98] active:brightness-90"
+                    style="background:linear-gradient(135deg,#4f46e5,#7c3aed,#9333ea);box-shadow:0 8px 32px rgba(99,102,241,0.35)">Done</button>
+                <div class="text-[10px] text-zinc-600 text-center mt-3 font-mono tracking-widest uppercase">Version
+                    1.0.5 (Synchronous iOS Fix)</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dynamic Confirm Modal -->
+    <div id="confirm-modal"
+        class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm hidden animate-in fade-in duration-200">
+        <div class="bg-[#0d0d12] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl scale-100">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="p-2 rounded-xl bg-red-500/15 border border-red-500/25">
+                    <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400"></i>
+                </div>
+                <h3 id="confirm-title" class="text-lg font-black text-white">Confirm Action</h3>
+            </div>
+            <p id="confirm-desc" class="text-zinc-400 text-sm mb-6 leading-relaxed">Are you sure?</p>
+            <div class="flex gap-3">
+                <button id="btn-cancel-confirm"
+                    class="flex-1 py-3 rounded-xl font-bold text-zinc-400 hover:text-white hover:bg-white/8 transition-colors border border-white/10">Cancel</button>
+                <button id="btn-do-confirm"
+                    class="flex-1 py-3 rounded-xl font-bold text-white transition-colors shadow-lg shadow-red-900/30"
+                    style="background:linear-gradient(135deg,#dc2626,#991b1b)">Confirm</button>
+            </div>
+        </div>
+    </div>
 
     <script>
-        const speakBtn = document.getElementById('speakBtn');
-        const textInput = document.getElementById('textInput');
-        const statusMsg = document.getElementById('statusMsg');
-        
-        let synth = window.speechSynthesis;
-        let voices = [];
+        // --- CONSTANTS ---
+        const COLORS = [
+            { name: 'Red', bg: 'bg-red-500', active: 'active:bg-red-700', shadow: 'border-red-700', text: 'text-white' },
+            { name: 'Blue', bg: 'bg-blue-500', active: 'active:bg-blue-700', shadow: 'border-blue-700', text: 'text-white' },
+            { name: 'Green', bg: 'bg-emerald-500', active: 'active:bg-emerald-700', shadow: 'border-emerald-700', text: 'text-white' },
+            { name: 'Yellow', bg: 'bg-yellow-400', active: 'active:bg-yellow-600', shadow: 'border-yellow-600', text: 'text-black' },
+            { name: 'Orange', bg: 'bg-orange-500', active: 'active:bg-orange-700', shadow: 'border-orange-700', text: 'text-white' },
+            { name: 'Purple', bg: 'bg-purple-500', active: 'active:bg-purple-700', shadow: 'border-purple-700', text: 'text-white' },
+            { name: 'Pink', bg: 'bg-pink-500', active: 'active:bg-pink-700', shadow: 'border-pink-700', text: 'text-white' },
+            { name: 'Gray', bg: 'bg-zinc-500', active: 'active:bg-zinc-700', shadow: 'border-zinc-700', text: 'text-white' },
+        ];
 
-        // 1. Critical for iOS: Load voices and handle the async change event
-        function populateVoices() {
-            voices = synth.getVoices();
-            if (voices.length > 0) {
-                statusMsg.innerText = "Speech engine ready. " + voices.length + " voices loaded.";
+        const GLOW_COLORS = {
+            'Red': 'rgba(239,68,68,0.65)',
+            'Blue': 'rgba(59,130,246,0.65)',
+            'Green': 'rgba(16,185,129,0.65)',
+            'Yellow': 'rgba(234,179,8,0.65)',
+            'Orange': 'rgba(249,115,22,0.65)',
+            'Purple': 'rgba(168,85,247,0.65)',
+            'Pink': 'rgba(236,72,153,0.65)',
+            'Gray': 'rgba(113,113,122,0.65)',
+        };
+
+        // Scan outline colours: ring = solid border, glow = diffuse outer halo
+        const SCAN_COLORS = {
+            'Yellow': { ring: 'rgba(250,204,21,0.95)', glow: 'rgba(250,204,21,0.45)', swatch: '#facc15' },
+            'White': { ring: 'rgba(255,255,255,0.95)', glow: 'rgba(255,255,255,0.35)', swatch: '#ffffff' },
+            'Red': { ring: 'rgba(239,68,68,0.95)', glow: 'rgba(239,68,68,0.45)', swatch: '#ef4444' },
+            'Blue': { ring: 'rgba(59,130,246,0.95)', glow: 'rgba(59,130,246,0.45)', swatch: '#3b82f6' },
+            'Green': { ring: 'rgba(16,185,129,0.95)', glow: 'rgba(16,185,129,0.45)', swatch: '#10b981' },
+            'Orange': { ring: 'rgba(249,115,22,0.95)', glow: 'rgba(249,115,22,0.45)', swatch: '#f97316' },
+            'Purple': { ring: 'rgba(168,85,247,0.95)', glow: 'rgba(168,85,247,0.45)', swatch: '#a855f7' },
+            'Pink': { ring: 'rgba(236,72,153,0.95)', glow: 'rgba(236,72,153,0.45)', swatch: '#ec4899' },
+        };
+
+        const GRADIENTS = {
+            'Red': 'linear-gradient(175deg, #fca5a5 0%, #ef4444 42%, #991b1b 100%)',
+            'Blue': 'linear-gradient(175deg, #93c5fd 0%, #3b82f6 42%, #1e3a8a 100%)',
+            'Green': 'linear-gradient(175deg, #6ee7b7 0%, #10b981 42%, #064e3b 100%)',
+            'Yellow': 'linear-gradient(175deg, #fef08a 0%, #eab308 42%, #713f12 100%)',
+            'Orange': 'linear-gradient(175deg, #fdba74 0%, #f97316 42%, #7c2d12 100%)',
+            'Purple': 'linear-gradient(175deg, #d8b4fe 0%, #a855f7 42%, #4c1d95 100%)',
+            'Pink': 'linear-gradient(175deg, #f9a8d4 0%, #ec4899 42%, #831843 100%)',
+            'Gray': 'linear-gradient(175deg, #d4d4d8 0%, #71717a 42%, #18181b 100%)',
+        };
+
+        const ORIENTATIONS = [
+            { id: 'auto', label: 'Auto', rotate: 0 },
+            { id: '0', label: '0°', rotate: 0 },
+            { id: '90', label: '90°', rotate: 90 },
+            { id: '180', label: '180°', rotate: 180 },
+            { id: '270', label: '270°', rotate: 270 },
+        ];
+
+        // --- STATE & HELPERS ---
+        const state = {
+            buttons: [],
+            labelPos: 'on',
+            selectedVoiceURI: '',
+            hapticsEnabled: true,
+            audioCueEnabled: true,
+            activationMode: 'press',
+            touchTarget: 'button',
+            orientationMode: 'auto',
+            debounceTime: 0,
+            showSettings: false,
+            settingsTab: 'buttons',
+            isPositioningMode: false,
+            isSpeaking: false,
+            activeButtonId: null,
+            playingButtonId: null,
+            editingBtnId: null,
+            voices: [],
+            inDebounce: false,
+            mediaRecorder: null,
+            isRecording: false,
+            playbackGain: 3.0,
+            scanInterval: 2.0,
+            scanColor: 'Yellow',
+            scanTick: false,
+            scanAnnounce: false,
+            scanClearDebounce: false,
+            outputBarPos: { x: 50, y: 92 },
+            outputBarScale: 1.0,
+            showOutputBarInPositioning: true
+        };
+
+        const createDefaultButton = (idOverride) => ({
+            id: idOverride || Date.now().toString(),
+            label: '',
+            phrases: ["", "", ""],
+            hasAudio: [false, false, false],
+            color: COLORS[1],
+            pos: { x: 50, y: 50 },
+            scale: 1.0,
+            phraseIndex: 0
+        });
+
+        // --- STORAGE ---
+        function safeGetItem(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+        function safeSetItem(key, val) { try { localStorage.setItem(key, val); } catch (e) { } }
+
+        // --- DB ---
+        const DB_NAME = 't2w_audio_db';
+        const STORE_NAME = 'recordings';
+        let dbInstance = null;
+
+        function getDB() {
+            return new Promise((resolve) => {
+                if (typeof indexedDB === 'undefined') return resolve(null);
+                if (dbInstance) return resolve(dbInstance);
+                const req = indexedDB.open(DB_NAME, 1);
+                req.onupgradeneeded = (e) => e.target.result.createObjectStore(STORE_NAME);
+                req.onsuccess = () => { dbInstance = req.result; resolve(dbInstance); };
+                req.onerror = () => resolve(null);
+            });
+        }
+        async function saveAudioBlob(key, blob) {
+            const db = await getDB();
+            if (!db) return false;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).put(blob, key);
+                return new Promise(r => { tx.oncomplete = r; tx.onerror = () => r(false); });
+            } catch (e) { return false; }
+        }
+        async function getAudioBlob(key) {
+            const db = await getDB();
+            if (!db) return null;
+            try {
+                return new Promise(r => {
+                    const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(key);
+                    req.onsuccess = () => r(req.result);
+                    req.onerror = () => r(null);
+                });
+            } catch (e) { return null; }
+        }
+        async function deleteAudioBlob(key) {
+            const db = await getDB();
+            if (!db) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).delete(key);
+                return new Promise(r => { tx.oncomplete = r; });
+            } catch (e) { }
+        }
+        async function clearAllAudioData() {
+            const db = await getDB();
+            if (!db) return;
+            try {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                tx.objectStore(STORE_NAME).clear();
+                return new Promise(r => { tx.oncomplete = r; });
+            } catch (e) { }
+        }
+        async function getStorageSize() {
+            const db = await getDB();
+            if (!db) return 0;
+            return new Promise(resolve => {
+                let size = 0;
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.openCursor();
+                req.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                        if (cursor.value && cursor.value.size) size += cursor.value.size;
+                        cursor.continue();
+                    } else {
+                        resolve(size);
+                    }
+                };
+                req.onerror = () => resolve(0);
+            });
+        }
+        function formatBytes(bytes, decimals = 2) {
+            if (!+bytes) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+        }
+
+        // --- CROSS-PLATFORM HELPERS ---
+        function escHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        // Detect the best supported recording MIME type for the current browser/platform.
+        // Prioritises opus-in-webm (Chrome/Firefox/Android), falls back to mp4 (iOS/Safari).
+        function getSupportedMimeType() {
+            if (typeof MediaRecorder === 'undefined') return '';
+            const types = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/ogg',
+                'audio/mp4;codecs=mp4a.40.2',
+                'audio/mp4',
+            ];
+            for (const t of types) {
+                try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) { }
+            }
+            return '';
+        }
+
+        // --- AUDIO CONTEXT (OPTIMIZED) ---
+        let audioCtx = null;
+        function initAudioCtx() {
+            if (!audioCtx && (window.AudioContext || window.webkitAudioContext)) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // --- iOS-SAFE TTS SUPPORT ---
+        // - Load voices asynchronously (required for iOS)
+        function loadVoices() {
+            if (window.speechSynthesis) {
+                state.voices = window.speechSynthesis.getVoices();
+            }
+        }
+        if (window.speechSynthesis) {
+            window.speechSynthesis.onvoiceschanged = loadVoices;
+            loadVoices();
+        }
+
+        // - Primer unlocks speechSynthesis with an empty speak+immediate cancel (see primeTTS below)
+        // - cancel() then short setTimeout before speak() works reliably
+        // - Keep references to active utterances so iOS doesn't garbage-collect them
+        const activeUtterances = [];
+        let ttsSpeechTimeout = null;
+
+        // blob.arrayBuffer() polyfill for iOS <= 14.4 which lacks the method.
+        function blobToArrayBuffer(blob) {
+            if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsArrayBuffer(blob);
+            });
+        }
+
+        // iOS-safe audio playback via AudioContext + AudioBufferSourceNode.
+        // HTMLAudioElement.play() fails after any await because iOS revokes the
+        // user-gesture requirement. AudioBufferSourceNode.start() works fine
+        // once the AudioContext is in a running state (unlocked synchronously
+        // earlier in the same event handler via initAudioCtx()).
+        async function createAndPlayAudio(blob, { onEnded, onError } = {}) {
+            try {
+                const ctx = initAudioCtx();
+                if (!ctx) throw new Error('No AudioContext available');
+                const arrayBuffer = await blobToArrayBuffer(blob);
+                const audioBuffer = await new Promise((resolve, reject) => {
+                    ctx.decodeAudioData(arrayBuffer, resolve, reject);
+                });
+                const source = ctx.createBufferSource();
+                source.buffer = audioBuffer;
+                // Amplify quiet recordings and soft-limit peaks to prevent distortion
+                const gainNode = ctx.createGain();
+                gainNode.gain.value = state.playbackGain || 3.0;
+                const compressor = ctx.createDynamicsCompressor();
+                compressor.threshold.value = -6;
+                compressor.knee.value = 3;
+                compressor.ratio.value = 4;
+                compressor.attack.value = 0.005;
+                compressor.release.value = 0.1;
+                source.connect(gainNode);
+                gainNode.connect(compressor);
+                compressor.connect(ctx.destination);
+                source.onended = () => onEnded && onEnded();
+                source.start(0);
+                return source; // caller can .stop() to interrupt early
+            } catch (err) {
+                onError && onError(err);
+                return null;
             }
         }
 
-        if (synth.onvoiceschanged !== undefined) {
-            synth.onvoiceschanged = populateVoices;
-        }
-        populateVoices();
+        // --- CORE LOGIC ---
+        function loadState() {
+            try {
+                // Button State
+                const savedBtns = safeGetItem('t2w_buttons_v4');
+                let loaded = savedBtns ? JSON.parse(savedBtns) : null;
+                if (Array.isArray(loaded) && loaded.length > 0) {
+                    state.buttons = loaded.map(b => {
+                        if (!b || typeof b !== 'object') return createDefaultButton();
+                        let color = COLORS[1];
+                        if (b.color && b.color.bg) {
+                            const found = COLORS.find(c => c.name === b.color.name);
+                            color = found || b.color;
+                        }
+                        return {
+                            id: b.id || Math.random().toString(),
+                            label: (typeof b.label === 'string') ? b.label : '',
+                            phrases: Array.isArray(b.phrases) ? b.phrases : ["", "", ""],
+                            hasAudio: Array.isArray(b.hasAudio) ? b.hasAudio : [false, false, false],
+                            color: color,
+                            pos: { x: Number(b.pos?.x) || 50, y: Number(b.pos?.y) || 50 },
+                            scale: Number(b.scale) || 1.0,
+                            phraseIndex: Number(b.phraseIndex) || 0
+                        };
+                    });
+                } else {
+                    state.buttons = [createDefaultButton()];
+                }
 
-        speakBtn.addEventListener('click', () => {
-            if (synth.speaking) {
-                console.error('Already speaking...');
-                return;
+                // Config State
+                state.labelPos = safeGetItem('t2w_label_pos') || 'on';
+                state.selectedVoiceURI = safeGetItem('t2w_voice') || "";
+                state.hapticsEnabled = safeGetItem('t2w_haptics') !== 'false';
+                state.audioCueEnabled = safeGetItem('t2w_audio') !== 'false';
+                state.activationMode = safeGetItem('t2w_mode') || 'press';
+
+                state.touchTarget = safeGetItem('t2w_target') || 'button';
+                if (state.buttons.length > 1) state.touchTarget = 'button';
+
+                state.debounceTime = Number(safeGetItem('t2w_debounce')) || 0;
+                state.orientationMode = safeGetItem('t2w_orientation') || 'auto';
+                state.playbackGain = Number(safeGetItem('t2w_gain')) || 3.0;
+                state.scanInterval = Number(safeGetItem('t2w_scan_interval')) || 2.0;
+                state.scanColor = safeGetItem('t2w_scan_color') || 'Yellow';
+                state.scanTick = safeGetItem('t2w_scan_tick') === 'true';
+                state.scanAnnounce = safeGetItem('t2w_scan_announce') === 'true';
+                state.scanClearDebounce = safeGetItem('t2w_scan_clear_debounce') === 'true';
+
+                const savedOutputBarPos = safeGetItem('t2w_output_bar_pos');
+                if (savedOutputBarPos) {
+                    try { state.outputBarPos = JSON.parse(savedOutputBarPos); } catch (e) { }
+                }
+                state.outputBarScale = Number(safeGetItem('t2w_output_bar_scale')) || 1.0;
+                state.showOutputBarInPositioning = safeGetItem('t2w_show_output_bar_positioning') !== 'false';
+
+                // Safety: Scan mode requires 2+ buttons
+                if (state.buttons.length === 1 && state.activationMode === 'scan') {
+                    state.activationMode = 'press';
+                }
+
+                // UI Persistence (Drawer State)
+                const uiState = JSON.parse(safeGetItem('t2w_ui_state') || '{}');
+                state.showSettings = !!uiState.showSettings;
+                state.settingsTab = uiState.settingsTab || 'buttons';
+
+                // Restore editing button safely
+                const savedEditId = uiState.editingBtnId;
+                const btnExists = state.buttons.find(b => b.id === savedEditId);
+                state.editingBtnId = btnExists ? savedEditId : state.buttons[0]?.id;
+
+            } catch (e) {
+                state.buttons = [createDefaultButton()];
+            }
+        }
+
+        function saveState() {
+            safeSetItem('t2w_buttons_v4', JSON.stringify(state.buttons));
+            safeSetItem('t2w_label_pos', state.labelPos);
+            safeSetItem('t2w_voice', state.selectedVoiceURI);
+            safeSetItem('t2w_haptics', state.hapticsEnabled);
+            safeSetItem('t2w_audio', state.audioCueEnabled);
+            safeSetItem('t2w_mode', state.activationMode);
+            safeSetItem('t2w_target', state.touchTarget);
+            safeSetItem('t2w_debounce', state.debounceTime);
+            safeSetItem('t2w_orientation', state.orientationMode);
+            safeSetItem('t2w_gain', state.playbackGain);
+            safeSetItem('t2w_scan_interval', state.scanInterval);
+            safeSetItem('t2w_scan_color', state.scanColor);
+            safeSetItem('t2w_scan_tick', state.scanTick);
+            safeSetItem('t2w_scan_announce', state.scanAnnounce);
+            safeSetItem('t2w_scan_clear_debounce', state.scanClearDebounce);
+            safeSetItem('t2w_output_bar_pos', JSON.stringify(state.outputBarPos));
+            safeSetItem('t2w_output_bar_scale', state.outputBarScale);
+            safeSetItem('t2w_show_output_bar_positioning', state.showOutputBarInPositioning);
+            safeSetItem('t2w_ui_state', JSON.stringify({
+                showSettings: state.showSettings,
+                settingsTab: state.settingsTab,
+                editingBtnId: state.editingBtnId
+            }));
+        }
+
+        // --- FUNCTIONS RESTORED ---
+        function openSettings() {
+            stopScan();
+            // Stop any active audio before entering settings
+            if (currentPlaybackSource) {
+                try { currentPlaybackSource.stop(); } catch (e) { }
+                currentPlaybackSource = null;
+            }
+            if (window.speechSynthesis) window.speechSynthesis.cancel();
+            state.isSpeaking = false;
+            state.playingButtonId = null;
+            state.showSettings = true;
+            if (!state.editingBtnId) state.editingBtnId = state.buttons[0]?.id;
+            document.getElementById('settings-modal').classList.remove('hidden');
+            renderSettingsContent();
+            updateTabUI();
+            saveState();
+        }
+
+        function closeSettings() {
+            // Stop any in-progress recording so the mic stream is released
+            if (state.isRecording && state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+                state.mediaRecorder.stop();
+            }
+            state.showSettings = false;
+            document.getElementById('settings-modal').classList.add('hidden');
+            saveState();
+            renderButtons();
+        }
+
+        function safeIcons() {
+            if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
+        }
+
+        function updateTabUI() {
+            const b = document.getElementById('tab-buttons');
+            const s = document.getElementById('tab-system');
+            const active = "flex-1 py-3 text-sm font-black uppercase tracking-wide border-b-2 transition-all border-indigo-400 text-white";
+            const inactive = "flex-1 py-3 text-sm font-black uppercase tracking-wide border-b-2 transition-all border-transparent text-zinc-500 hover:text-zinc-300";
+            if (state.settingsTab === 'buttons') {
+                b.className = active;
+                s.className = inactive;
+            } else {
+                s.className = active;
+                b.className = inactive;
+            }
+        }
+
+        // --- MODAL HANDLING ---
+        let confirmCallback = null;
+        function showConfirm(title, desc, callback) {
+            document.getElementById('confirm-title').innerText = title;
+            document.getElementById('confirm-desc').innerText = desc;
+            confirmCallback = callback;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        // --- DOM INIT ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+
+            if (window.lucide) window.lucide.createIcons();
+
+            if (window.speechSynthesis) {
+                const loadVoices = () => {
+                    state.voices = window.speechSynthesis.getVoices();
+                    if (!state.selectedVoiceURI && state.voices.length) state.selectedVoiceURI = state.voices[0].voiceURI;
+                };
+                window.speechSynthesis.onvoiceschanged = loadVoices;
+                loadVoices();
+                // iOS can be very slow to enumerate voices; retry several times
+                setTimeout(loadVoices, 100);
+                setTimeout(loadVoices, 500);
+                setTimeout(loadVoices, 1500);
             }
 
-            if (textInput.value !== '') {
-                // 2. iOS WORKAROUND: Prime the engine
-                // On some iOS versions, the engine needs to be "resumed" inside the click handler
-                if (synth.paused) {
-                    synth.resume();
+            renderButtons();
+
+            // Initialize output bar position
+            updateOutputBarPositionDOM();
+
+            // Output bar drag/resize handlers
+            const outputBar = document.getElementById('output-bar');
+            if (outputBar) {
+                outputBar.addEventListener('pointerdown', (e) => {
+                    if (!state.isPositioningMode) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    outputBar.setPointerCapture(e.pointerId);
+                    initOutputBarGesture(e);
+                });
+                outputBar.addEventListener('pointermove', (e) => {
+                    if (!state.isPositioningMode || !gesture.active || gesture.target !== 'outputBar') return;
+                    const rect = document.getElementById('main-canvas').getBoundingClientRect();
+                    const dx = e.clientX - gesture.startCen.x;
+                    const dy = e.clientY - gesture.startCen.y;
+                    state.outputBarPos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
+                    state.outputBarPos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
+                    updateOutputBarPositionDOM();
+                });
+                outputBar.addEventListener('pointerup', (e) => {
+                    if (gesture.active && gesture.target === 'outputBar') {
+                        gesture.active = false;
+                        gesture.target = null;
+                        saveState();
+                    }
+                });
+                outputBar.addEventListener('pointercancel', (e) => {
+                    if (gesture.active && gesture.target === 'outputBar') {
+                        gesture.active = false;
+                        gesture.target = null;
+                        saveState();
+                    }
+                });
+                outputBar.addEventListener('wheel', (e) => {
+                    if (!state.isPositioningMode) return;
+                    e.preventDefault();
+                    const direction = e.deltaY < 0 ? 1 : -1;
+                    const newScale = Math.min(2.0, Math.max(0.5, state.outputBarScale + (direction * 0.1)));
+                    state.outputBarScale = parseFloat(newScale.toFixed(2));
+                    updateOutputBarPositionDOM();
+                    saveState();
+                }, { passive: false });
+            }
+
+            if (state.showSettings) {
+                document.getElementById('settings-modal').classList.remove('hidden');
+                renderSettingsContent();
+                updateTabUI();
+            }
+
+            // First-run hint: reveal how to open settings
+            if (!safeGetItem('t2w_hint_shown')) {
+                safeSetItem('t2w_hint_shown', '1');
+                const hint = document.createElement('div');
+                hint.id = 'start-hint';
+                hint.className = 'fixed bottom-10 left-1/2 z-50 -translate-x-1/2 bg-zinc-800/95 backdrop-blur border border-zinc-700 text-zinc-200 text-sm font-semibold px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 pointer-events-none select-none';
+                hint.innerHTML = `<i data-lucide="settings" class="w-4 h-4 text-indigo-400 shrink-0"></i>&thinsp;Hold the <span class="text-indigo-300 mx-1">&#9881;</span> icon 3 seconds to configure`;
+                hint.style.opacity = '0';
+                hint.style.transform = 'translateX(-50%) translateY(16px)';
+                document.body.appendChild(hint);
+                safeIcons();
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    hint.style.opacity = '1';
+                    hint.style.transform = 'translateX(-50%) translateY(0)';
+                    setTimeout(() => {
+                        hint.style.opacity = '0';
+                        hint.style.transform = 'translateX(-50%) translateY(16px)';
+                        setTimeout(() => hint.remove(), 600);
+                    }, 5000);
+                }));
+            }
+
+            // Settings only opens via the 3-second hold — block any plain click.
+            let holdFired = false;
+            document.getElementById('settings-trigger').addEventListener('click', (e) => {
+                e.preventDefault();
+                holdFired = false; // consume any stale flag
+            });
+            document.getElementById('close-settings-top').onclick = closeSettings;
+            document.getElementById('close-settings-btn').onclick = closeSettings;
+            document.getElementById('settings-backdrop').addEventListener('click', closeSettings);
+
+            document.getElementById('tab-buttons').onclick = () => {
+                state.settingsTab = 'buttons';
+                renderSettingsContent();
+                updateTabUI();
+                saveState();
+            };
+            document.getElementById('tab-system').onclick = () => {
+                state.settingsTab = 'system';
+                renderSettingsContent();
+                updateTabUI();
+                saveState();
+            };
+
+            // Scan overlay — any tap/click activates the currently highlighted button
+            let scanLastTouch = 0;
+            document.getElementById('scan-overlay').addEventListener('touchstart', (e) => {
+                if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
+                e.preventDefault();
+                scanLastTouch = Date.now();
+                const btn = state.buttons[scanIdx];
+                if (btn) activateSwitch(btn.id);
+            }, { passive: false });
+            document.getElementById('scan-overlay').addEventListener('mousedown', (e) => {
+                if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
+                e.preventDefault();
+                if (Date.now() - scanLastTouch < 800) return;
+                const btn = state.buttons[scanIdx];
+                if (btn) activateSwitch(btn.id);
+            });
+
+            document.getElementById('lock-pos-btn').onclick = () => togglePositioning(false);
+            document.getElementById('reset-pos-btn').onclick = () => {
+                state.buttons.forEach((b, i) => b.pos = { x: 50, y: 50 + (i * 10) });
+                saveState();
+                renderButtons();
+            };
+            document.getElementById('auto-arrange-btn').onclick = () => {
+                arrangeGrid();
+            };
+            document.getElementById('toggle-output-bar-btn').onclick = () => {
+                state.showOutputBarInPositioning = !state.showOutputBarInPositioning;
+                updateOutputBarInPositioningMode();
+                saveState();
+                if (window.lucide) window.lucide.createIcons();
+            };
+
+            // Confirm Modal Listeners
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('btn-cancel-confirm').onclick = () => {
+                modal.classList.add('hidden');
+                confirmCallback = null;
+            };
+            document.getElementById('btn-do-confirm').onclick = () => {
+                if (confirmCallback) confirmCallback();
+                modal.classList.add('hidden');
+                confirmCallback = null;
+            };
+
+            // Hold Logic
+            const settingsTrigger = document.getElementById('settings-trigger');
+            const holdRing = document.getElementById('hold-progress-ring');
+            const settingsIcon = document.getElementById('settings-icon');
+            let holdTimer;
+
+            function startHold(e) {
+                if (state.isPositioningMode) return;
+                holdFired = false;
+                settingsTrigger.classList.add('bg-zinc-800', 'scale-110');
+                settingsIcon.classList.add('text-indigo-400');
+                let start = Date.now();
+                holdTimer = setInterval(() => {
+                    let pct = Math.min(100, (Date.now() - start) / 3000 * 100);
+                    holdRing.style.strokeDashoffset = 125.6 - (125.6 * pct / 100);
+                    if (pct >= 100) { holdFired = true; endHold(); openSettings(); }
+                }, 16);
+            }
+
+            function endHold() {
+                clearInterval(holdTimer);
+                settingsTrigger.classList.remove('bg-zinc-800', 'scale-110');
+                settingsIcon.classList.remove('text-indigo-400');
+                holdRing.style.strokeDashoffset = 125.6;
+            }
+
+            settingsTrigger.addEventListener('mousedown', startHold);
+            // passive:false + preventDefault stops iOS from showing the native
+            // long-press callout (Save Image / Copy) while the progress ring fills.
+            settingsTrigger.addEventListener('touchstart', (e) => { e.preventDefault(); startHold(e); }, { passive: false });
+            ['mouseup', 'mouseleave', 'touchend'].forEach(ev => settingsTrigger.addEventListener(ev, endHold));
+        });
+
+        // --- RENDER & LOGIC ---
+        function renderButtons() {
+            stopScan();
+            const mainCanvas = document.getElementById('main-canvas');
+            if (!mainCanvas) return;
+            mainCanvas.innerHTML = '';
+
+            state.buttons.forEach(btn => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'absolute btn-enter';
+                wrapper.dataset.btnWrapper = btn.id;
+                wrapper.style.left = `${btn.pos.x}%`;
+                wrapper.style.top = `${btn.pos.y}%`;
+                wrapper.style.setProperty('--btn-scale', btn.scale || 1);
+                wrapper.style.transform = `translate(-50%, -50%) scale(${btn.scale || 1})`;
+                // Stagger entrance per button
+                wrapper.style.animationDelay = `${state.buttons.indexOf(btn) * 80}ms`;
+
+                const rotatable = document.createElement('div');
+                rotatable.className = 'relative group perspective-1000 btn-rotatable transition-transform duration-300 ease-out';
+
+                const btnEl = document.createElement('button');
+                btnEl.className = `app-button relative w-64 h-64 md:w-80 md:h-80 rounded-full ${btn.color.shadow} transition-all duration-100 transform flex items-center justify-center overflow-hidden outline-none cursor-pointer select-none`;
+                btnEl.style.borderBottomWidth = '20px';
+                btnEl.style.background = GRADIENTS[btn.color.name] || '';
+                btnEl.dataset.id = btn.id;
+
+                btnEl.innerHTML = `
+                    ${state.isPositioningMode ? `<div class="absolute inset-0 flex items-center justify-center bg-black/20 z-20 pointer-events-none"><i data-lucide="grip" class="w-16 h-16 text-white opacity-80"></i></div>` : ''}
+                    <!-- Primary specular highlight: upper-left, simulates overhead-angled light -->
+                    <div style="position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(ellipse 62% 44% at 36% 24%, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0.04) 52%, transparent 100%)"></div>
+                    <!-- Secondary specular: tiny hot-spot at the apex -->
+                    <div style="position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(ellipse 28% 18% at 36% 18%, rgba(255,255,255,0.22) 0%, transparent 100%)"></div>
+                    <!-- Bottom ambient bounce: subtle light from the surface below -->
+                    <div style="position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(ellipse 70% 28% at 50% 104%, rgba(255,255,255,0.13) 0%, transparent 100%)"></div>
+                    <!-- Surface vignette: darkens the outer rim to suggest curvature -->
+                    <div style="position:absolute;inset:0;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 50% 50%, transparent 42%, rgba(0,0,0,0.22) 100%)"></div>
+                    <!-- Bevel inset shadow (lit top, dark bottom, subtle rim) -->
+                    <div style="position:absolute;inset:0;border-radius:50%;pointer-events:none;box-shadow:inset 0 3px 7px rgba(255,255,255,0.22),inset 0 -5px 14px rgba(0,0,0,0.28),inset 0 0 0 1px rgba(255,255,255,0.09)"></div>
+                    ${(state.labelPos === 'on' && btn.label) ? `<span class="relative z-10 text-3xl font-black uppercase tracking-widest px-4 text-center ${btn.color.text} pointer-events-none select-none" style="text-shadow: ${btn.color.name === 'Yellow' ? '0 0 8px rgba(255,255,255,0.9), 0 0 12px rgba(255,255,255,0.7), 0 2px 4px rgba(0,0,0,0.3), -1px -1px 0 rgba(255,255,255,0.5), 1px -1px 0 rgba(255,255,255,0.5), -1px 1px 0 rgba(255,255,255,0.5), 1px 1px 0 rgba(255,255,255,0.5)' : '0 0 8px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.8), 0 2px 6px rgba(0,0,0,0.6), -1px -1px 0 rgba(0,0,0,0.7), 1px -1px 0 rgba(0,0,0,0.7), -1px 1px 0 rgba(0,0,0,0.7), 1px 1px 0 rgba(0,0,0,0.7)'}">${escHtml(btn.label)}</span>` : ''}
+                `;
+
+                btnEl.addEventListener('wheel', (e) => {
+                    if (state.showSettings || !state.isPositioningMode) return;
+                    e.preventDefault();
+                    const direction = e.deltaY < 0 ? 1 : -1;
+                    const newScale = Math.min(3.0, Math.max(0.4, (btn.scale || 1) + (direction * 0.1)));
+                    btn.scale = parseFloat(newScale.toFixed(2));
+                    updateButtonPositionDOM(btn.id);
+                    saveState();
+                }, { passive: false });
+
+                // Tracks which pointer IDs are currently held on this button (release mode).
+                // Each button gets its own Set so multi-touch across buttons works correctly.
+                const heldPointers = new Set();
+
+                let lastTouchTime = 0;
+                btnEl.addEventListener('touchstart', (e) => {
+                    if (state.isPositioningMode) return;
+                    if (state.activationMode === 'press') {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        lastTouchTime = Date.now();
+                        activateSwitch(btn.id);
+                    }
+                }, { passive: false });
+
+                btnEl.addEventListener('mousedown', (e) => {
+                    if (state.isPositioningMode) return;
+                    if (state.activationMode === 'press') {
+                        if (Date.now() - lastTouchTime < 800) return;
+                        e.stopPropagation();
+                        activateSwitch(btn.id);
+                    }
+                });
+
+                btnEl.addEventListener('pointerdown', (e) => {
+                    if (state.isPositioningMode) {
+                        e.stopPropagation();
+                        if (e.pointerType !== 'mouse') e.preventDefault();
+                        initGesture(e, btn.id);
+                    } else if (state.activationMode === 'release' && !state.showSettings && state.touchTarget === 'button') {
+                        // Depress the button visually immediately on touch-down.
+                        // setPointerCapture keeps pointermove firing on this element even
+                        // after the pointer leaves it — without it, mouse pointermove stops
+                        // at the element edge and the button never pops back up on drag-off.
+                        e.stopPropagation();
+                        if (e.pointerType === 'touch') e.preventDefault();
+                        btnEl.setPointerCapture(e.pointerId);
+                        heldPointers.add(e.pointerId);
+                        state.activeButtonId = btn.id;
+                        updateVisuals();
+                    }
+                });
+
+                // If the finger slides off the button area, pop up and activate (like a real button release)
+                btnEl.addEventListener('pointermove', (e) => {
+                    if (!heldPointers.has(e.pointerId)) return;
+                    const rect = btnEl.getBoundingClientRect();
+                    const outside = Math.hypot(
+                        e.clientX - (rect.left + rect.width / 2),
+                        e.clientY - (rect.top + rect.height / 2)
+                    ) > rect.width / 2;
+                    if (outside) {
+                        // Slide off: pop up visually and activate immediately
+                        heldPointers.delete(e.pointerId);
+                        if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                        activateSwitch(btn.id);
+                    }
+                });
+
+                // Release mode: activate when finger lifts if still on button
+
+                // Helper to handle release logic (shared between pointerup and touchend fallback)
+                const handleRelease = (id) => {
+                    if (state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                        activateSwitch(btn.id);
+                        return true;
+                    }
+                    return false;
+                };
+
+                btnEl.addEventListener('touchend', (e) => {
+                    // iOS Safari often needs touchend for audio unlock, while pointerup might fail.
+                    // We try to trigger here if release mode is active.
+                    if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
+                        e.preventDefault(); // Prevent ghost clicks
+                        // Clear all held pointers for this button since a finger lifted? 
+                        // Or try to process changed touches.
+                        // Since we don't have the pointerId mapping easily, let's just trigger if ANY pointer was held.
+                        // This might be slightly incorrect for multi-touch on same button, 
+                        // but "release mode" usually implies "lift finger to activate".
+                        if (heldPointers.size > 0) {
+                            heldPointers.clear(); // Clear all tracked pointers for this button to avoid double activation
+                            handleRelease(btn.id);
+                        }
+                    }
+                });
+
+                btnEl.addEventListener('pointerup', (e) => {
+                    if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
+                        e.stopPropagation();
+                        // If heldPointers has this pointer, it means touchend didn't clear it (e.g. mouse or missed event).
+                        if (heldPointers.delete(e.pointerId)) {
+                            handleRelease(btn.id);
+                        }
+                    }
+                });
+
+                // System cancelled the gesture (palm rejection, notification, etc.)
+                btnEl.addEventListener('pointercancel', (e) => {
+                    if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                });
+
+                rotatable.appendChild(btnEl);
+
+                if (state.labelPos === 'under' && btn.label) {
+                    const lbl = document.createElement('div');
+                    lbl.className = 'absolute left-1/2 -translate-x-1/2 top-[115%] px-8 py-3 bg-black/60 backdrop-blur-md rounded-2xl border border-white/10 whitespace-nowrap pointer-events-none';
+                    lbl.innerHTML = `<span class="text-2xl font-bold tracking-wider text-white uppercase" style="text-shadow:0 1px 4px rgba(0,0,0,0.5)">${escHtml(btn.label)}</span>`;
+                    rotatable.appendChild(lbl);
                 }
+                wrapper.appendChild(rotatable);
+                mainCanvas.appendChild(wrapper);
+            });
 
-                const utterThis = new SpeechSynthesisUtterance(textInput.value);
+            safeIcons();
+            updateVisuals();
+            if (state.activationMode === 'scan' && !state.showSettings && !state.isPositioningMode) startScan();
+        }
 
-                // 3. Selection of a high-quality iOS voice (Samantha is standard)
-                const preferredVoice = voices.find(v => v.name.includes('Samantha') || (v.lang === 'en-US' && v.default));
-                if (preferredVoice) {
-                    utterThis.voice = preferredVoice;
+        function updateVisuals() {
+            const btns = document.querySelectorAll('.app-button');
+            btns.forEach(b => {
+                if (state.inDebounce || state.isPositioningMode) b.style.opacity = '0.9';
+                else b.style.opacity = '1';
+                const isPressed = b.dataset.id === state.activeButtonId;
+                const isSpeakingThis = state.isSpeaking && state.playingButtonId === b.dataset.id;
+                if (isPressed && !state.isPositioningMode) {
+                    b.classList.add('translate-y-4', 'brightness-90', 'scale-[0.93]');
+                    b.style.borderBottomWidth = '4px';
+                    b.style.boxShadow = [
+                        '0  4px 10px -2px rgba(0,0,0,0.60)',
+                        '0  2px  5px -1px rgba(0,0,0,0.45)',
+                        'inset 0  6px 18px rgba(0,0,0,0.45)',
+                        'inset 0  2px  6px rgba(0,0,0,0.30)',
+                        'inset 0 -1px  4px rgba(255,255,255,0.08)'
+                    ].join(',');
+                } else {
+                    b.classList.remove('translate-y-4', 'brightness-90', 'scale-[0.93]');
+                    b.style.borderBottomWidth = '20px';
+                    if (!isSpeakingThis) b.style.boxShadow = '';
                 }
+                // Speaking border
+                const btnData = state.buttons.find(bd => bd.id === b.dataset.id);
+                if (isSpeakingThis && btnData) {
+                    const borderColor = GLOW_COLORS[btnData.color.name] || 'rgba(255,255,255,0.9)';
+                    b.style.setProperty('--speaking-color', borderColor);
+                    b.classList.add('speaking-border');
+                } else {
+                    b.classList.remove('speaking-border');
+                    b.style.removeProperty('--speaking-color');
+                }
+            });
+            const rot = state.orientationMode === 'auto' ? 0 : (ORIENTATIONS.find(o => o.id === state.orientationMode)?.rotate || 0);
+            document.querySelectorAll('.header-rotate, #positioning-overlay, .btn-rotatable').forEach(el => {
+                el.style.transform = `rotate(${rot}deg)`;
+            });
+        }
 
-                utterThis.onstart = () => { statusMsg.innerText = "Speaking..."; };
-                utterThis.onend = () => { statusMsg.innerText = "Finished."; };
-                utterThis.onerror = (event) => { statusMsg.innerText = "Error: " + event.error; };
+        const gesture = { active: false, target: null, btnId: null, startScale: 1, startDist: 0, startPos: { x: 0, y: 0 }, startCen: { x: 0, y: 0 } };
 
-                // 4. Rate and Pitch (iOS handles 1.0 best)
-                utterThis.pitch = 1.0;
-                utterThis.rate = 1.0;
+        // Fast DOM update for position/scale during drag (avoids full re-render).
+        // Must also update --btn-scale so the btn-enter animation's forwards fill
+        // (which renders scale(var(--btn-scale))) reflects the new value immediately —
+        // CSS animation fills sit above inline styles in the cascade.
+        function updateButtonPositionDOM(btnId) {
+            const btn = state.buttons.find(b => b.id === btnId);
+            if (!btn) return;
+            const wrapper = document.querySelector(`[data-btn-wrapper="${btnId}"]`);
+            if (!wrapper) return;
+            const s = btn.scale || 1;
+            wrapper.style.left = `${btn.pos.x}%`;
+            wrapper.style.top = `${btn.pos.y}%`;
+            wrapper.style.setProperty('--btn-scale', s);
+            wrapper.style.transform = `translate(-50%, -50%) scale(${s})`;
+        }
 
-                synth.speak(utterThis);
+        function updateOutputBarPositionDOM() {
+            const bar = document.getElementById('output-bar');
+            if (!bar) return;
+            bar.style.left = `${state.outputBarPos.x}%`;
+            bar.style.top = `${state.outputBarPos.y}%`;
+            bar.style.transform = `translate(-50%, -50%) scale(${state.outputBarScale})`;
+        }
+
+        function initGesture(e, btnId) {
+            const btn = state.buttons.find(b => b.id === btnId);
+            const t = e.touches ? e.touches[0] : e;
+            gesture.active = true;
+            gesture.target = 'button';
+            gesture.btnId = btnId;
+            gesture.startScale = btn.scale || 1;
+            gesture.startPos = { ...btn.pos };
+            gesture.startCen = { x: t.clientX, y: t.clientY };
+            gesture.startDist = 0;
+        }
+
+        function initOutputBarGesture(e) {
+            const t = e.touches ? e.touches[0] : e;
+            gesture.active = true;
+            gesture.target = 'outputBar';
+            gesture.btnId = null;
+            gesture.startScale = state.outputBarScale;
+            gesture.startPos = { ...state.outputBarPos };
+            gesture.startCen = { x: t.clientX, y: t.clientY };
+            gesture.startDist = 0;
+        }
+
+        function updateOutputBarInPositioningMode() {
+            const outputBar = document.getElementById('output-bar');
+            const toggleLabel = document.getElementById('output-bar-toggle-label');
+            if (!outputBar) return;
+
+            if (state.showOutputBarInPositioning) {
+                outputBar.style.opacity = '1';
+                outputBar.classList.remove('pointer-events-none');
+                outputBar.classList.add('pointer-events-auto');
+                const inner = outputBar.querySelector('div');
+                if (inner) {
+                    inner.style.cursor = 'move';
+                    inner.style.background = 'rgba(99,102,241,0.15)';
+                    inner.style.borderColor = 'rgba(99,102,241,0.45)';
+                }
+                const textEl = document.getElementById('output-text');
+                if (textEl) textEl.textContent = 'Voice Readout';
+                updateOutputBarPositionDOM();
+                if (toggleLabel) toggleLabel.textContent = 'Voice Readout: On';
+            } else {
+                outputBar.style.opacity = '0';
+                outputBar.classList.add('pointer-events-none');
+                outputBar.classList.remove('pointer-events-auto');
+                if (toggleLabel) toggleLabel.textContent = 'Voice Readout: Off';
+            }
+        }
+
+        function togglePositioning(active) {
+            state.isPositioningMode = active;
+            const overlay = document.getElementById('positioning-overlay');
+            const hdr = document.getElementById('header');
+            const outputBar = document.getElementById('output-bar');
+            if (active) {
+                // Stop scanning while in positioning mode - no actions available
+                stopScan();
+                overlay.classList.remove('hidden');
+                hdr.classList.add('opacity-0', 'pointer-events-none');
+                // Make output bar visible and draggable based on user preference
+                updateOutputBarInPositioningMode();
+                // Refresh icons for positioning overlay buttons
+                if (window.lucide) window.lucide.createIcons();
+            } else {
+                overlay.classList.add('hidden');
+                hdr.classList.remove('opacity-0', 'pointer-events-none');
+                // Restore output bar to normal state
+                if (outputBar) {
+                    outputBar.style.opacity = '0';
+                    outputBar.classList.add('pointer-events-none');
+                    outputBar.classList.remove('pointer-events-auto');
+                    const inner = outputBar.querySelector('div');
+                    if (inner) {
+                        inner.style.cursor = '';
+                        inner.style.background = 'rgba(0,0,0,0.82)';
+                        inner.style.borderColor = 'rgba(255,255,255,0.15)';
+                    }
+                }
+                saveState();
+            }
+            renderButtons(); // This will auto-restart scanning if needed
+        }
+
+        window.addEventListener('touchmove', (e) => {
+            if (!state.isPositioningMode || !gesture.active) return;
+            e.preventDefault();
+
+            if (gesture.target === 'button') {
+                const btn = state.buttons.find(b => b.id === gesture.btnId);
+                if (!btn) return;
+                if (e.touches.length === 2) {
+                    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                    if (gesture.startDist === 0) gesture.startDist = d;
+                    btn.scale = Math.min(3, Math.max(0.4, gesture.startScale * (d / gesture.startDist)));
+                } else {
+                    const rect = document.getElementById('main-canvas').getBoundingClientRect();
+                    const dx = e.touches[0].clientX - gesture.startCen.x;
+                    const dy = e.touches[0].clientY - gesture.startCen.y;
+                    btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
+                    btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
+                }
+                updateButtonPositionDOM(gesture.btnId);
+            }
+        }, { passive: false });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!state.isPositioningMode || !gesture.active) return;
+
+            if (gesture.target === 'button') {
+                const btn = state.buttons.find(b => b.id === gesture.btnId);
+                if (!btn) return;
+                const rect = document.getElementById('main-canvas').getBoundingClientRect();
+                const dx = e.clientX - gesture.startCen.x;
+                const dy = e.clientY - gesture.startCen.y;
+                btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
+                btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
+                updateButtonPositionDOM(gesture.btnId);
             }
         });
+
+        let screenLastTouch = 0;
+        window.addEventListener('touchstart', (e) => {
+            if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                    // Prevent default to avoid mouse emulation double-firing if we are taking over the screen
+                    // But we must be careful not to block settings interactions if we were wrong about the context?
+                    // We checked !state.showSettings.
+                    // If we preventDefault, we might block scrolling? But with 1 button full-screen, scrolling is likely not intended/possible?
+                    // However, to be safe and ensure 'mouse emulation' doesn't fire click/mousedown later:
+                    // e.preventDefault(); 
+                    // Actually, if we don't preventDefault, mousedown will fire. We guard mousedown with screenLastTouch check.
+                    screenLastTouch = Date.now();
+                    activateSwitch(state.buttons[0].id);
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener('mousedown', (e) => {
+            if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                    if (Date.now() - screenLastTouch < 800) return;
+                    activateSwitch(state.buttons[0].id);
+                }
+            }
+        });
+
+        window.addEventListener('touchend', () => {
+            if (gesture.active) {
+                gesture.active = false;
+                saveState();
+            }
+            // Release mode on touch for whole-screen target
+            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
+            }
+        });
+        window.addEventListener('mouseup', () => {
+            if (gesture.active) {
+                gesture.active = false;
+                saveState(); // Save on drop/end
+            }
+            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
+            }
+        });
+
+        // Dispatcher for button activation. Ensures synchronous paths for TTS
+        // to satisfy iOS Safari's strict user-gesture requirements.
+        function activateSwitch(btnId) {
+            if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
+            if (state.debounceTime > 0) {
+                state.inDebounce = true;
+                if (debounceTimeoutId) clearTimeout(debounceTimeoutId);
+                debounceTimeoutId = setTimeout(() => {
+                    state.inDebounce = false;
+                    debounceTimeoutId = null;
+                    updateVisuals();
+                }, state.debounceTime * 1000);
+            }
+
+            // Ensure any active recording or microphone stream is stopped
+            // iOS often silences speakers if the microphone is active.
+            if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+                try { state.mediaRecorder.stop(); } catch (e) { }
+            }
+
+            // Prime engine on every tap to ensure it's "warm" for the utterance
+            primeTTS();
+
+            state.activeButtonId = btnId;
+            updateVisuals();
+            setTimeout(() => { state.activeButtonId = null; updateVisuals(); }, 200);
+
+            const btn = state.buttons.find(b => b.id === btnId);
+            if (!btn) return;
+
+            const idx = btn.phraseIndex;
+            const audioKey = `${btn.id}_${idx}`;
+            const phraseText = (btn.phrases[idx] || '').trim();
+            const displayText = phraseText || btn.label || '';
+            if (displayText) showOutputBar(displayText);
+
+            // --- PRIORITY: ROBOT VOICE (TTS) ---
+            // We trigger this FIRST to ensure the user gesture token is 
+            // used by the most restrictive API before Web Audio or Haptics.
+            let hasRecording = btn.hasAudio && btn.hasAudio[idx];
+            if (!hasRecording) {
+                fallbackSpeak(btn, phraseText);
+            }
+
+            // --- SECONDARY: FEEDBACK (HAPTICS & SOUND) ---
+            if (state.hapticsEnabled && navigator.vibrate) try { navigator.vibrate(50); } catch (e) { }
+
+            if (state.audioCueEnabled) {
+                try {
+                    const ctx = initAudioCtx();
+                    if (ctx) {
+                        const osc = ctx.createOscillator();
+                        const g = ctx.createGain();
+                        osc.connect(g); g.connect(ctx.destination);
+                        osc.frequency.setValueAtTime(600, ctx.currentTime);
+                        osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.15);
+                        g.gain.setValueAtTime(0, ctx.currentTime);
+                        g.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+                        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+                    }
+                } catch (e) { }
+            }
+
+            // --- TERTIARY: RECORDED AUDIO ---
+            if (hasRecording) {
+                (async () => {
+                    try {
+                        const blob = await getAudioBlob(audioKey);
+                        if (blob) {
+                            state.isSpeaking = true;
+                            state.playingButtonId = btn.id;
+                            updateVisuals();
+                            currentPlaybackSource = await createAndPlayAudio(blob, {
+                                onEnded: () => {
+                                    currentPlaybackSource = null;
+                                    state.isSpeaking = false;
+                                    state.playingButtonId = null;
+                                    updateVisuals();
+                                },
+                                onError: () => {
+                                    currentPlaybackSource = null;
+                                    state.isSpeaking = false;
+                                    state.playingButtonId = null;
+                                    fallbackSpeak(btn, phraseText);
+                                }
+                            });
+                        } else {
+                            fallbackSpeak(btn, phraseText);
+                        }
+                    } catch (e) {
+                        fallbackSpeak(btn, phraseText);
+                    }
+                })();
+            }
+
+            // Update phrase index for next tap
+            const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
+            if (valid.length > 1) {
+                let next = (idx + 1) % 3;
+                let s = 0;
+                while ((!btn.phrases[next] || !btn.phrases[next].trim()) && (!btn.hasAudio || !btn.hasAudio[next]) && s < 5) {
+                    next = (next + 1) % 3; s++;
+                }
+                btn.phraseIndex = next;
+                saveState();
+            }
+        }
+
+        // txt is pre-captured so we always speak the right phrase even if phraseIndex
+        // has already advanced by the time an audio error fires asynchronously.
+        function fallbackSpeak(btn, txt) {
+            if (txt === undefined) txt = (btn.phrases[btn.phraseIndex] || btn.phrases.find(p => p) || '').trim();
+            if (!txt) {
+                state.isSpeaking = false;
+                state.playingButtonId = null;
+                updateVisuals();
+                return;
+            }
+            if (window.speechSynthesis) {
+                // Align with user script: Check engine state inside gesture context
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                }
+
+                const u = new SpeechSynthesisUtterance(txt);
+                u.lang = 'en-US';
+
+                if (state.voices.length === 0) {
+                    state.voices = window.speechSynthesis.getVoices();
+                }
+                if (state.voices.length > 0) {
+                    // Match user script's priority selection
+                    const preferred = state.voices.find(v => v.name.includes('Samantha') || (v.lang === 'en-US' && v.default)) ||
+                        state.voices.find(v => v.voiceURI === state.selectedVoiceURI) ||
+                        state.voices[0];
+                    if (preferred) u.voice = preferred;
+                }
+
+                u.pitch = 1.0;
+                u.volume = 1.0;
+                u.rate = 1.0;
+
+                // Sync execution: we cancel and speak immediately without setTimeout delay
+                window.speechSynthesis.cancel();
+
+                activeUtterances.push(u);
+                u.onstart = () => {
+                    console.log('TTS Started:', txt);
+                    state.isSpeaking = true;
+                    state.playingButtonId = btn.id;
+                    updateVisuals();
+                };
+                u.onend = () => {
+                    state.isSpeaking = false;
+                    state.playingButtonId = null;
+                    updateVisuals();
+                    const idx = activeUtterances.indexOf(u);
+                    if (idx > -1) activeUtterances.splice(idx, 1);
+                };
+                u.onerror = (e) => {
+                    console.error('Speech error details:', e);
+                    state.isSpeaking = false;
+                    state.playingButtonId = null;
+                    updateVisuals();
+                    const idx = activeUtterances.indexOf(u);
+                    if (idx > -1) activeUtterances.splice(idx, 1);
+                };
+
+                window.speechSynthesis.speak(u);
+            } else {
+                state.isSpeaking = false;
+                state.playingButtonId = null;
+                updateVisuals();
+            }
+        }
+
+        async function toggleRecording(btnId, phraseIndex, btnElement) {
+            if (state.isRecording) {
+                if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+                return;
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Pick the best MIME type for this platform (webm on Chrome/Android, mp4 on iOS/Safari)
+                const mimeType = getSupportedMimeType();
+                const options = mimeType ? { mimeType } : {};
+                const mediaRecorder = new MediaRecorder(stream, options);
+                const chunks = [];
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data && e.data.size > 0) chunks.push(e.data);
+                };
+
+                const cleanup = (saveBlob) => async () => {
+                    stream.getTracks().forEach(t => t.stop());
+                    state.isRecording = false;
+                    state.mediaRecorder = null;
+                    if (saveBlob && chunks.length > 0) {
+                        const blob = new Blob(chunks, { type: mimeType || 'audio/webm' });
+                        await saveAudioBlob(`${btnId}_${phraseIndex}`, blob);
+                        const btn = state.buttons.find(b => b.id === btnId);
+                        if (btn) {
+                            if (!btn.hasAudio) btn.hasAudio = [false, false, false];
+                            btn.hasAudio[phraseIndex] = true;
+                        }
+                        saveState();
+                    }
+                    renderSettingsContent();
+                };
+
+                mediaRecorder.onstop = cleanup(true);
+                mediaRecorder.onerror = cleanup(false);
+
+                // 100 ms timeslices: ensures ondataavailable fires regularly on all browsers
+                // (without a timeslice, Firefox fires it only once at stop)
+                mediaRecorder.start(100);
+                state.isRecording = true;
+                state.mediaRecorder = mediaRecorder;
+                btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current"></i>`;
+                btnElement.classList.add('bg-red-600', 'text-white', 'recording-pulse');
+                safeIcons();
+            } catch (err) {
+                const msg = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+                    ? 'Microphone access was denied. Please allow mic access in your browser settings.'
+                    : err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError'
+                        ? 'No microphone found on this device.'
+                        : err.name === 'NotReadableError'
+                            ? 'Microphone is already in use by another app.'
+                            : 'Could not start recording: ' + (err.message || err.name);
+                alert(msg);
+            }
+        }
+
+        let currentPlaybackSource = null;
+        let activePreviewSource = null;
+        async function playPreview(btnId, phraseIndex) {
+            if (activePreviewSource) {
+                try { activePreviewSource.stop(); } catch (e) { }
+                activePreviewSource = null;
+            }
+            // Unlock AudioContext synchronously within this user-gesture handler
+            // so the async getAudioBlob() call below doesn't block playback on iOS.
+            initAudioCtx();
+            const blob = await getAudioBlob(`${btnId}_${phraseIndex}`);
+            if (blob) {
+                activePreviewSource = await createAndPlayAudio(blob, {
+                    onEnded: () => { activePreviewSource = null; },
+                    onError: () => { activePreviewSource = null; }
+                });
+            }
+        }
+
+        async function deleteRecording(btnId, phraseIndex) {
+            await deleteAudioBlob(`${btnId}_${phraseIndex}`);
+            const btn = state.buttons.find(b => b.id === btnId);
+            if (btn.hasAudio) btn.hasAudio[phraseIndex] = false;
+            saveState();
+            renderSettingsContent();
+        }
+
+        function renderSettingsContent() {
+            const settingsContent = document.getElementById('settings-content');
+            settingsContent.innerHTML = '';
+
+            if (state.settingsTab === 'buttons') {
+                const sel = document.createElement('div');
+                sel.className = 'flex gap-2 overflow-x-auto pb-2 mb-6';
+                state.buttons.forEach((b, i) => {
+                    const btn = document.createElement('button');
+                    const active = state.editingBtnId === b.id;
+                    btn.className = `flex items-center gap-2 px-4 py-3 rounded-xl border shrink-0 transition-all ${active ? 'border-indigo-400 ring-1 ring-indigo-400/30 text-indigo-200' : 'border-white/10 text-zinc-400 opacity-70 hover:opacity-100'}`;
+                    btn.style.background = active ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.04)';
+                    btn.innerHTML = `<div class="w-3 h-3 rounded-full shrink-0" style="background:${GRADIENTS[b.color.name] || ''}"></div><span class="text-xs font-bold uppercase">${escHtml(b.label) || 'Button ' + (i + 1)}</span>`;
+                    btn.onclick = () => { state.editingBtnId = b.id; renderSettingsContent(); saveState(); };
+                    sel.appendChild(btn);
+                });
+                if (state.buttons.length < 4) {
+                    const add = document.createElement('button');
+                    add.className = 'px-4 py-3 rounded-xl border border-dashed border-indigo-400/40 text-indigo-400/70 flex items-center gap-2 shrink-0 hover:border-indigo-400 hover:text-indigo-300 transition-all';
+                    add.style.background = 'rgba(99,102,241,0.05)';
+                    add.innerHTML = `<i data-lucide="plus" class="w-4 h-4"></i> Add`;
+                    add.onclick = () => {
+                        const off = state.buttons.length * 10;
+                        state.buttons.push({ ...createDefaultButton(), id: Date.now().toString(), pos: { x: 50 + off, y: 50 - off }, color: COLORS[state.buttons.length % COLORS.length] });
+
+                        if (state.buttons.length > 1) state.touchTarget = 'button';
+
+                        state.editingBtnId = state.buttons[state.buttons.length - 1].id;
+                        renderSettingsContent();
+                        saveState();
+                    };
+                    sel.appendChild(add);
+                }
+                settingsContent.appendChild(sel);
+
+                const editBtn = state.buttons.find(b => b.id === state.editingBtnId);
+                if (editBtn) {
+                    const form = document.createElement('div');
+                    form.className = 'space-y-6';
+                    form.innerHTML = `
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs font-bold text-indigo-400 uppercase flex items-center gap-2 mb-2"><i data-lucide="edit-3" class="w-3 h-3"></i> Button Label</label>
+                                <input class="w-full p-3 rounded-xl text-white outline-none transition-all" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)" value="${escHtml(editBtn.label)}" id="inp-label" placeholder="e.g., Yes, Help, More" onfocus="this.style.borderColor='#818cf8';this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.2)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)';this.style.boxShadow='none'">
+                                <p class="text-[9px] text-zinc-500 mt-1.5 leading-tight">Shown on the button. Leave blank for phrases only.</p>
+                            </div>
+                            <div>
+                                <label class="text-xs font-bold text-pink-400 uppercase flex items-center gap-2 mb-2"><i data-lucide="palette" class="w-3 h-3"></i> Button Color</label>
+                                <div class="grid grid-cols-4 gap-2" id="grid-color"></div>
+                            </div>
+                        </div>
+                        <div class="rounded-xl p-4" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)">
+                            <label class="text-[10px] text-amber-400 uppercase font-bold block mb-3 flex items-center gap-2">
+                                <i data-lucide="mouse-pointer-2" class="w-3 h-3"></i> Activation Area
+                            </label>
+                            <div class="flex gap-2">
+                                <button id="target-screen" class="flex-1 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.touchTarget === 'screen' ? 'text-indigo-200 border-indigo-400' : 'text-zinc-400 border-white/10'}" style="background:${state.touchTarget === 'screen' ? 'linear-gradient(135deg,rgba(79,70,229,0.3),rgba(124,58,237,0.2))' : 'rgba(255,255,255,0.04)'}">Whole Screen</button>
+                                <button id="target-button" class="flex-1 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.touchTarget === 'button' ? 'text-indigo-200 border-indigo-400' : 'text-zinc-400 border-white/10'}" style="background:${state.touchTarget === 'button' ? 'linear-gradient(135deg,rgba(79,70,229,0.3),rgba(124,58,237,0.2))' : 'rgba(255,255,255,0.04)'}">Button Only</button>
+                            </div>
+                            ${state.buttons.length > 1 ? '<p class="text-[9px] text-amber-400/80 mt-2 flex items-center gap-1"><i data-lucide="info" class="w-3 h-3"></i> "Whole Screen" requires a single button layout.</p>' : '<p class="text-[9px] text-zinc-500 mt-2 flex items-center gap-1"><i data-lucide="info" class="w-3 h-3"></i> Tap anywhere on screen to activate.</p>'}
+                        </div>
+                        <div class="mt-4 mb-2">
+                            <label class="text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-2"><i data-lucide="message-circle" class="w-3 h-3"></i> Phrases & Audio</label>
+                            <p class="text-[10px] text-zinc-500 mt-1 leading-relaxed">Add up to 3 phrases to cycle through on each tap. Recording audio overrides the robot voice.</p>
+                        </div>
+                        <div class="space-y-3" id="list-phrases"></div>
+                        <div class="flex items-center gap-4 pt-4" style="border-top:1px solid rgba(255,255,255,0.08)">
+                            <div class="flex-1">
+                                <div class="flex justify-between mb-2">
+                                    <label class="text-xs font-bold text-cyan-400 uppercase flex items-center gap-2"><i data-lucide="scaling" class="w-3 h-3"></i> Size</label>
+                                    <span class="text-xs font-mono text-cyan-300">${(editBtn.scale || 1).toFixed(1)}×</span>
+                                </div>
+                                <input type="range" min="0.5" max="2.0" step="0.1" value="${editBtn.scale || 1}" class="w-full" id="inp-scale">
+                            </div>
+                            ${state.buttons.length > 1 ? '<button id="btn-delete" class="text-red-400 text-xs font-bold uppercase px-4 py-2 rounded-xl transition-all hover:bg-red-500/15" style="border:1px solid rgba(239,68,68,0.2)">Delete</button>' : ''}
+                        </div>
+                    `;
+                    form.querySelector('#inp-label').oninput = (e) => editBtn.label = e.target.value;
+                    form.querySelector('#inp-scale').oninput = (e) => {
+                        editBtn.scale = parseFloat(e.target.value);
+                        const lbl = e.target.closest('div').querySelector('span.font-mono');
+                        if (lbl) lbl.textContent = editBtn.scale.toFixed(1) + '×';
+                    };
+                    const ts = form.querySelector('#target-screen');
+
+                    if (state.buttons.length > 1) {
+                        ts.disabled = true;
+                        ts.classList.add('opacity-40', 'cursor-not-allowed');
+                    }
+
+                    ts.onclick = () => { state.touchTarget = 'screen'; renderSettingsContent(); saveState(); }
+                    form.querySelector('#target-button').onclick = () => { state.touchTarget = 'button'; renderSettingsContent(); saveState(); }
+
+                    const gc = form.querySelector('#grid-color');
+                    COLORS.forEach(c => {
+                        const b = document.createElement('button');
+                        const isActive = editBtn.color.name === c.name;
+                        b.className = `w-full aspect-square rounded-full flex items-center justify-center transition-all duration-150 ${isActive ? 'scale-110' : 'opacity-55 hover:opacity-85 hover:scale-105'}`;
+                        b.style.background = GRADIENTS[c.name] || '';
+                        if (isActive) {
+                            b.style.boxShadow = `0 0 0 3px #fff, 0 0 0 5px rgba(255,255,255,0.3), 0 4px 16px ${GLOW_COLORS[c.name] || 'rgba(255,255,255,0.4)'}`;
+                            b.innerHTML = `<i data-lucide="check" class="w-4 h-4 text-white drop-shadow pointer-events-none"></i>`;
+                        }
+                        b.onclick = () => { editBtn.color = c; renderSettingsContent(); saveState(); }
+                        gc.appendChild(b);
+                    });
+
+                    const pl = form.querySelector('#list-phrases');
+                    editBtn.phrases.forEach((p, idx) => {
+                        const has = editBtn.hasAudio && editBtn.hasAudio[idx];
+                        const w = document.createElement('div');
+                        w.className = 'flex items-center gap-2';
+                        const inputStyle = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)';
+                        w.innerHTML = `<div class="relative flex-1"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-indigo-400/60">${idx + 1}</span><input class="w-full pl-8 pr-4 py-3 rounded-xl text-white outline-none transition-all" style="${inputStyle}" value="${escHtml(p)}" placeholder="Phrase" onfocus="this.style.borderColor='#818cf8';this.style.boxShadow='0 0 0 3px rgba(99,102,241,0.2)'" onblur="this.style.borderColor='rgba(255,255,255,0.10)';this.style.boxShadow='none'"></div>`;
+                        w.querySelector('input').oninput = (e) => editBtn.phrases[idx] = e.target.value;
+                        const rec = document.createElement('button');
+                        if (has) {
+                            rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-emerald-300 hover:brightness-110';
+                            rec.style.cssText = 'background:rgba(16,185,129,0.15);border-color:rgba(52,211,153,0.4)';
+                            rec.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current"></i>`;
+                            rec.onclick = () => playPreview(editBtn.id, idx);
+                            const del = document.createElement('button');
+                            del.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-red-400 hover:brightness-110';
+                            del.style.cssText = 'background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.25)';
+                            del.innerHTML = `<i data-lucide="trash" class="w-4 h-4"></i>`;
+                            del.onclick = () => deleteRecording(editBtn.id, idx);
+                            w.appendChild(rec); w.appendChild(del);
+                        } else {
+                            rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-zinc-400 hover:text-pink-300 hover:border-pink-400/40';
+                            rec.style.cssText = 'background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.10)';
+                            rec.innerHTML = `<i data-lucide="mic" class="w-4 h-4"></i>`;
+                            rec.onclick = (e) => toggleRecording(editBtn.id, idx, e.currentTarget);
+                            w.appendChild(rec);
+                        }
+                        pl.appendChild(w);
+                    });
+
+                    const bd = form.querySelector('#btn-delete');
+                    if (bd) bd.onclick = () => {
+                        state.buttons = state.buttons.filter(b => b.id !== editBtn.id);
+                        state.editingBtnId = state.buttons[0].id;
+                        // If deleting brings us down to 1 button and we're in scan mode, switch to press mode
+                        if (state.buttons.length === 1 && state.activationMode === 'scan') {
+                            state.activationMode = 'press';
+                            stopScan();
+                        }
+                        renderSettingsContent();
+                        saveState();
+                    }
+                    settingsContent.appendChild(form);
+
+                    // Add Reset Button
+                    const resetDiv = document.createElement('div');
+                    resetDiv.className = "pt-6 mt-6";
+                    resetDiv.style.borderTop = '1px solid rgba(255,255,255,0.08)';
+                    resetDiv.innerHTML = `
+                        <button id="btn-reset-layout" class="w-full py-3 rounded-xl text-red-400 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(239,68,68,0.06);border:1px dashed rgba(239,68,68,0.25)">
+                            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Reset to Default
+                        </button>
+                    `;
+                    resetDiv.querySelector('#btn-reset-layout').onclick = () => {
+                        showConfirm(
+                            "Reset to default?",
+                            "This will remove all buttons and create a single default button. This cannot be undone.",
+                            () => {
+                                state.buttons = [createDefaultButton()];
+                                state.editingBtnId = state.buttons[0].id;
+                                state.touchTarget = 'button';
+                                // Safety: can't have scan mode with 1 button
+                                if (state.activationMode === 'scan') {
+                                    state.activationMode = 'press';
+                                    stopScan();
+                                }
+                                renderSettingsContent();
+                                renderButtons();
+                                saveState();
+                            }
+                        );
+                    };
+                    settingsContent.appendChild(resetDiv);
+                }
+            } else {
+                const sys = document.createElement('div');
+                sys.className = 'space-y-6';
+                const voiceOptions = state.voices.length
+                    ? state.voices.map(v => `<option value="${v.voiceURI}" style="background:#1e1e2e;color:#e4e4e7" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
+                    : '<option value="" style="background:#1e1e2e;color:#e4e4e7">No voices available</option>';
+                const activeToggle = 'text-indigo-200 border-indigo-400/70';
+                const activeToggleBg = 'linear-gradient(135deg,rgba(79,70,229,0.28),rgba(124,58,237,0.18))';
+                const inactiveToggle = 'text-zinc-400 border-white/10 hover:text-zinc-200';
+                const inactiveToggleBg = 'rgba(255,255,255,0.04)';
+                const sliderCard = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:0.875rem;padding:1rem';
+                sys.innerHTML = `
+                    <div>
+                        <label class="text-xs font-bold text-cyan-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="mouse-pointer-2" class="w-3 h-3"></i> Activation Mode
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">"Release" helps users who drag their finger. ${state.buttons.length > 1 ? '"Scan" highlights buttons one by one for switch users.' : ''}</p>
+                        <div class="grid ${state.buttons.length > 1 ? 'grid-cols-3' : 'grid-cols-2'} gap-2">
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.activationMode === 'press' ? activeToggle : inactiveToggle}" style="background:${state.activationMode === 'press' ? activeToggleBg : inactiveToggleBg}" id="sys-press">Press</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.activationMode === 'release' ? activeToggle : inactiveToggle}" style="background:${state.activationMode === 'release' ? activeToggleBg : inactiveToggleBg}" id="sys-rel">Release</button>
+                            ${state.buttons.length > 1 ? `<button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all flex items-center justify-center gap-1 ${state.activationMode === 'scan' ? activeToggle : inactiveToggle}" style="background:${state.activationMode === 'scan' ? activeToggleBg : inactiveToggleBg}" id="sys-scan"><i data-lucide="scan-line" class="w-3 h-3"></i> Scan</button>` : ''}
+                        </div>
+                        ${state.activationMode === 'scan' ? `<div class="mt-3 space-y-3">
+                            <div style="${sliderCard}">
+                                <div class="flex justify-between mb-3">
+                                    <span class="text-[10px] uppercase font-bold text-zinc-400">Scan Speed</span>
+                                    <span class="text-[10px] font-mono text-cyan-400 font-bold" id="sys-scan-val">${state.scanInterval}s per button</span>
+                                </div>
+                                <input type="range" min="0.5" max="5" step="0.5" value="${state.scanInterval}" class="w-full" id="sys-scan-spd">
+                                <div class="flex justify-between mt-2">
+                                    <span class="text-[9px] text-zinc-500">0.5s (fast)</span>
+                                    <span class="text-[9px] text-zinc-500">5s (slow)</span>
+                                </div>
+                            </div>
+                            <div style="${sliderCard}">
+                                <span class="text-[10px] uppercase font-bold text-zinc-400 block mb-3">Outline Colour</span>
+                                <div class="flex gap-2 flex-wrap" id="scan-color-picker"></div>
+                            </div>
+                            <div class="flex items-center justify-between" style="${sliderCard}">
+                                <div>
+                                    <span class="text-[10px] uppercase font-bold text-zinc-400 block">Audible Tick</span>
+                                    <span class="text-[9px] text-zinc-500">Click on each selection change</span>
+                                </div>
+                                <button id="sys-scan-tick" class="px-4 py-2 rounded-xl border text-xs font-bold uppercase transition-all ${state.scanTick ? activeToggle : inactiveToggle}" style="background:${state.scanTick ? activeToggleBg : inactiveToggleBg}">${state.scanTick ? 'On' : 'Off'}</button>
+                            </div>
+                            <div class="flex items-center justify-between" style="${sliderCard}">
+                                <div>
+                                    <span class="text-[10px] uppercase font-bold text-zinc-400 block">Speak Label</span>
+                                    <span class="text-[9px] text-zinc-500">Announce button name while scanning</span>
+                                </div>
+                                <button id="sys-scan-announce" class="px-4 py-2 rounded-xl border text-xs font-bold uppercase transition-all ${state.scanAnnounce ? activeToggle : inactiveToggle}" style="background:${state.scanAnnounce ? activeToggleBg : inactiveToggleBg}">${state.scanAnnounce ? 'On' : 'Off'}</button>
+                            </div>
+                            <div class="flex items-center justify-between" style="${sliderCard}">
+                                <div>
+                                    <span class="text-[10px] uppercase font-bold text-zinc-400 block">Clear Cooldown on Advance</span>
+                                    <span class="text-[9px] text-zinc-500">Resets activation cooldown when scanner moves</span>
+                                </div>
+                                <button id="sys-scan-clear-debounce" class="px-4 py-2 rounded-xl border text-xs font-bold uppercase transition-all ${state.scanClearDebounce ? activeToggle : inactiveToggle}" style="background:${state.scanClearDebounce ? activeToggleBg : inactiveToggleBg}">${state.scanClearDebounce ? 'On' : 'Off'}</button>
+                            </div>
+                        </div>` : ''}
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-amber-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="bell" class="w-3 h-3"></i> Tap Feedback
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Get confirmation when you tap a button.</p>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button class="flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.hapticsEnabled ? activeToggle : inactiveToggle}" style="background:${state.hapticsEnabled ? activeToggleBg : inactiveToggleBg}" id="sys-hap"><i data-lucide="zap" class="w-4 h-4"></i> Vibration</button>
+                            <button class="flex items-center justify-center gap-2 p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.audioCueEnabled ? activeToggle : inactiveToggle}" style="background:${state.audioCueEnabled ? activeToggleBg : inactiveToggleBg}" id="sys-snd"><i data-lucide="music" class="w-4 h-4"></i> Sound</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="hourglass" class="w-3 h-3"></i> Activation Cooldown
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Prevents accidental double-taps by ignoring extra touches for a short time.</p>
+                        <div style="${sliderCard}">
+                            <div class="flex justify-between mb-3">
+                                <span class="text-[10px] uppercase font-bold text-zinc-400">Debounce Time</span>
+                                <span class="text-[10px] font-mono text-emerald-400 font-bold" id="sys-debounce-val">${state.debounceTime}s</span>
+                            </div>
+                            <input type="range" min="0" max="5" step="0.5" value="${state.debounceTime}" class="w-full" id="sys-debounce">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="volume-2" class="w-3 h-3"></i> Recorded Voice Volume
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Boosts the volume of your microphone recordings (does not affect TTS robot voices).</p>
+                        <div style="${sliderCard}">
+                            <div class="flex justify-between mb-3">
+                                <span class="text-[10px] uppercase font-bold text-zinc-400">Playback Boost</span>
+                                <span class="text-[10px] font-mono text-blue-400 font-bold" id="sys-gain-val">${state.playbackGain.toFixed(1)}&times;</span>
+                            </div>
+                            <input type="range" min="1" max="5" step="0.5" value="${state.playbackGain}" class="w-full" id="sys-gain">
+                            <div class="flex justify-between mt-2">
+                                <span class="text-[9px] text-zinc-500">1× (original)</span>
+                                <span class="text-[9px] text-zinc-500">5× louder</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-violet-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="mic-2" class="w-3 h-3"></i> TTS Voice
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Robot voice used when phrases have no audio recording.</p>
+                        <select id="sys-voice" class="w-full p-3 rounded-xl text-white text-sm outline-none cursor-pointer transition-all" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)" onfocus="this.style.borderColor='#a78bfa'" onblur="this.style.borderColor='rgba(255,255,255,0.10)'">${voiceOptions}</select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-pink-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="type" class="w-3 h-3"></i> Button Label Position
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Where the button label appears.</p>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.labelPos === 'on' ? activeToggle : inactiveToggle}" style="background:${state.labelPos === 'on' ? activeToggleBg : inactiveToggleBg}" id="lbl-on">On Button</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.labelPos === 'under' ? activeToggle : inactiveToggle}" style="background:${state.labelPos === 'under' ? activeToggleBg : inactiveToggleBg}" id="lbl-under">Under</button>
+                            <button class="p-3 rounded-xl border text-xs font-bold uppercase transition-all ${state.labelPos === 'off' ? activeToggle : inactiveToggle}" style="background:${state.labelPos === 'off' ? activeToggleBg : inactiveToggleBg}" id="lbl-off">Hidden</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-orange-400 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <i data-lucide="rotate-cw" class="w-3 h-3"></i> Screen Orientation
+                        </label>
+                        <div class="grid grid-cols-5 gap-2">
+                            ${ORIENTATIONS.map(o => `<button class="p-2 rounded-xl border text-[10px] font-bold uppercase transition-all ${state.orientationMode === o.id ? activeToggle : inactiveToggle}" style="background:${state.orientationMode === o.id ? activeToggleBg : inactiveToggleBg}" id="ori-${o.id}">${o.label}</button>`).join('')}
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2 mb-1">
+                            <i data-lucide="layout-grid" class="w-3 h-3"></i> Button Layout
+                        </label>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Enter positioning mode to arrange your buttons.</p>
+                        <div class="space-y-3">
+                            <button class="w-full p-4 rounded-xl text-indigo-300 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(99,102,241,0.10);border:2px dashed rgba(99,102,241,0.45)" id="sys-unlock">
+                                <i data-lucide="move" class="w-4 h-4"></i> Move & Place Buttons
+                            </button>
+                            <button class="w-full p-4 rounded-xl text-zinc-300 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)" id="sys-fs">
+                                <i data-lucide="${document.fullscreenElement ? 'minimize' : 'maximize'}" class="w-4 h-4"></i>
+                                ${document.fullscreenElement ? 'Exit Full Screen' : 'Enter Full Screen'}
+                            </button>
+                            ${deferredInstallPrompt ? `<button class="w-full p-4 rounded-xl text-violet-300 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(139,92,246,0.10);border:1px solid rgba(139,92,246,0.35)" id="sys-install"><i data-lucide="download" class="w-4 h-4"></i> Add to Home Screen</button>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="pt-6" style="border-top:1px solid rgba(255,255,255,0.08)">
+                        <label class="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="refresh-ccw" class="w-3 h-3"></i> App Maintenance</label>
+                        <div class="space-y-3">
+                            <button id="sys-update-btn" class="w-full p-4 rounded-xl text-white text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);box-shadow:0 4px 15px rgba(99,102,241,0.2)">
+                                <i data-lucide="download-cloud" class="w-4 h-4"></i> Force Update App
+                            </button>
+                            <button id="sys-test-speech" class="w-full p-4 rounded-xl text-zinc-300 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)">
+                                <i data-lucide="volume-2" class="w-4 h-4"></i> Test Robot Voice
+                            </button>
+                            <p class="text-[9px] text-zinc-600 text-center leading-relaxed">Use Force Update if changes aren't appearing on your iPad. This clears the local cache and pulls fresh from GitHub.</p>
+                        </div>
+                    </div>
+
+                    <div class="pt-6" style="border-top:1px solid rgba(255,255,255,0.08)">
+                        <label class="text-xs font-bold text-red-400 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="database" class="w-3 h-3"></i> Storage</label>
+                        <div class="flex items-center justify-between p-4 rounded-xl" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)">
+                            <span class="text-xs font-bold text-zinc-300" id="storage-size">Calculating...</span>
+                            <button id="btn-clear-storage" class="text-red-400 text-xs font-bold uppercase px-3 py-2 rounded-lg transition-all hover:bg-red-500/15" style="border:1px solid rgba(239,68,68,0.2)">Clear All</button>
+                        </div>
+                    </div>
+
+                    <div class="text-center pt-4 pb-4">
+                        <div class="inline-flex items-center gap-3 px-5 py-3 rounded-xl" style="background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(168,85,247,0.08));border:1px solid rgba(99,102,241,0.25)">
+                            <i data-lucide="keyboard" class="w-5 h-5 text-indigo-400"></i>
+                            <span class="text-sm font-semibold" style="background:linear-gradient(90deg,#a5b4fc,#c4b5fd);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Press <kbd class="font-mono not-italic" style="-webkit-text-fill-color:#c4b5fd">1</kbd>&thinsp;–&thinsp;<kbd class="font-mono not-italic" style="-webkit-text-fill-color:#c4b5fd">4</kbd> to trigger buttons</span>
+                        </div>
+                    </div>
+                 `;
+                sys.querySelector('#sys-press').onclick = () => { state.activationMode = 'press'; stopScan(); renderSettingsContent(); saveState(); }
+                sys.querySelector('#sys-rel').onclick = () => { state.activationMode = 'release'; stopScan(); renderSettingsContent(); saveState(); }
+                const scanBtn = sys.querySelector('#sys-scan');
+                if (scanBtn) {
+                    scanBtn.onclick = () => { state.activationMode = 'scan'; renderSettingsContent(); saveState(); }
+                }
+                if (sys.querySelector('#sys-scan-spd')) {
+                    sys.querySelector('#sys-scan-spd').oninput = (e) => {
+                        state.scanInterval = Number(e.target.value);
+                        const lbl = document.getElementById('sys-scan-val');
+                        if (lbl) lbl.textContent = state.scanInterval + 's per button';
+                        saveState();
+                    };
+                }
+                const colorPicker = sys.querySelector('#scan-color-picker');
+                if (colorPicker) {
+                    Object.entries(SCAN_COLORS).forEach(([name, col]) => {
+                        const btn = document.createElement('button');
+                        const isActive = state.scanColor === name;
+                        btn.className = `w-9 h-9 rounded-full transition-all duration-150 ${isActive ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-[#0d0d12]' : 'opacity-60 hover:opacity-90 hover:scale-110'}`;
+                        btn.style.background = col.swatch;
+                        btn.title = name;
+                        btn.onclick = () => { state.scanColor = name; renderSettingsContent(); saveState(); };
+                        colorPicker.appendChild(btn);
+                    });
+                }
+                if (sys.querySelector('#sys-scan-tick')) {
+                    sys.querySelector('#sys-scan-tick').onclick = () => {
+                        state.scanTick = !state.scanTick;
+                        if (state.scanTick) playScanTick(); // preview the sound
+                        renderSettingsContent();
+                        saveState();
+                    };
+                }
+                if (sys.querySelector('#sys-scan-announce')) {
+                    sys.querySelector('#sys-scan-announce').onclick = () => {
+                        state.scanAnnounce = !state.scanAnnounce;
+                        renderSettingsContent();
+                        saveState();
+                    };
+                }
+                if (sys.querySelector('#sys-scan-clear-debounce')) {
+                    sys.querySelector('#sys-scan-clear-debounce').onclick = () => {
+                        state.scanClearDebounce = !state.scanClearDebounce;
+                        renderSettingsContent();
+                        saveState();
+                    };
+                }
+                sys.querySelector('#sys-hap').onclick = () => { state.hapticsEnabled = !state.hapticsEnabled; renderSettingsContent(); saveState(); }
+                sys.querySelector('#sys-snd').onclick = () => { state.audioCueEnabled = !state.audioCueEnabled; renderSettingsContent(); saveState(); }
+                sys.querySelector('#sys-debounce').oninput = (e) => {
+                    state.debounceTime = Number(e.target.value);
+                    const lbl = document.getElementById('sys-debounce-val');
+                    if (lbl) lbl.textContent = state.debounceTime + 's';
+                    saveState();
+                };
+                sys.querySelector('#sys-gain').oninput = (e) => {
+                    state.playbackGain = Number(e.target.value);
+                    const lbl = document.getElementById('sys-gain-val');
+                    if (lbl) lbl.textContent = state.playbackGain.toFixed(1) + '\u00D7';
+                    saveState();
+                };
+                if (sys.querySelector('#sys-voice')) {
+                    sys.querySelector('#sys-voice').onchange = (e) => { state.selectedVoiceURI = e.target.value; saveState(); };
+                }
+                sys.querySelector('#lbl-on').onclick = () => { state.labelPos = 'on'; renderSettingsContent(); renderButtons(); saveState(); }
+                sys.querySelector('#lbl-under').onclick = () => { state.labelPos = 'under'; renderSettingsContent(); renderButtons(); saveState(); }
+                sys.querySelector('#lbl-off').onclick = () => { state.labelPos = 'off'; renderSettingsContent(); renderButtons(); saveState(); }
+
+                // Force Update Logic
+                const updateBtn = sys.querySelector('#sys-update-btn');
+                if (updateBtn) {
+                    updateBtn.onclick = async () => {
+                        updateBtn.disabled = true;
+                        updateBtn.textContent = 'Updating...';
+                        try {
+                            if ('serviceWorker' in navigator) {
+                                const registrations = await navigator.serviceWorker.getRegistrations();
+                                for (let registration of registrations) {
+                                    await registration.unregister();
+                                }
+                            }
+                            // Clear all caches
+                            if ('caches' in window) {
+                                const keys = await caches.keys();
+                                for (let key of keys) {
+                                    await caches.delete(key);
+                                }
+                            }
+                            // Hard reload
+                            window.location.reload(true);
+                        } catch (e) {
+                            alert('Update failed: ' + e.message);
+                            updateBtn.disabled = false;
+                            updateBtn.textContent = 'Force Update App';
+                        }
+                    };
+                }
+
+                // Test Speech Logic
+                const testBtn = sys.querySelector('#sys-test-speech');
+                if (testBtn) {
+                    testBtn.onclick = () => {
+                        try {
+                            primeTTS(); // Ensure context is unlocked
+                            const testBtnObj = { id: 'test', phrases: ['System check. Robot voice is working.'], phraseIndex: 0 };
+                            fallbackSpeak(testBtnObj, 'System check. Robot voice is working.');
+                        } catch (e) {
+                            alert('Speech Test Error: ' + e.message);
+                        }
+                    };
+                }
+
+                ORIENTATIONS.forEach(o => {
+                    const el = sys.querySelector(`#ori-${o.id}`);
+                    if (el) el.onclick = () => { state.orientationMode = o.id; renderSettingsContent(); saveState(); updateVisuals(); };
+                });
+                sys.querySelector('#sys-unlock').onclick = () => { closeSettings(); togglePositioning(true); }
+                sys.querySelector('#sys-fs').onclick = () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(e => { }); else document.exitFullscreen(); }
+                const installBtn = sys.querySelector('#sys-install');
+                if (installBtn) {
+                    installBtn.onclick = async () => {
+                        if (!deferredInstallPrompt) return;
+                        deferredInstallPrompt.prompt();
+                        await deferredInstallPrompt.userChoice;
+                        deferredInstallPrompt = null;
+                        renderSettingsContent();
+                    };
+                }
+
+                // Storage Logic
+                sys.querySelector('#btn-clear-storage').onclick = () => {
+                    showConfirm(
+                        "Delete all audio?",
+                        "This will permanently remove all recorded sounds from this device. Button text labels will be kept.",
+                        async () => {
+                            await clearAllAudioData();
+                            state.buttons.forEach(b => b.hasAudio = [false, false, false]);
+                            saveState();
+                            renderSettingsContent();
+                        }
+                    );
+                };
+
+                getStorageSize().then(size => {
+                    const el = document.getElementById('storage-size');
+                    if (el) el.innerText = formatBytes(size);
+                });
+
+                settingsContent.appendChild(sys);
+            }
+            safeIcons();
+        }
+
+        // --- OUTPUT DISPLAY BAR ---
+        let outputBarTimer = null;
+        function showOutputBar(text) {
+            const bar = document.getElementById('output-bar');
+            const span = document.getElementById('output-text');
+            if (!bar || !span) return;
+            if (outputBarTimer) { clearTimeout(outputBarTimer); outputBarTimer = null; }
+            span.textContent = text;
+            bar.classList.remove('hiding');
+            updateOutputBarPositionDOM(); // Apply current position
+            bar.style.opacity = '1';
+            outputBarTimer = setTimeout(() => {
+                bar.classList.add('hiding');
+                outputBarTimer = setTimeout(() => {
+                    bar.style.opacity = '0';
+                    bar.classList.remove('hiding');
+                }, 400);
+            }, 6000);
+        }
+
+        // --- SCANNING MODE ---
+        let scanTimer = null;
+        let scanIdx = 0;
+        let debounceTimeoutId = null;
+
+        function startScan() {
+            stopScan();
+            if (state.activationMode !== 'scan' || state.buttons.length === 0 || state.showSettings || state.isPositioningMode) return;
+            scanIdx = 0;
+            updateScanHighlight();
+            if (state.scanTick) playScanTick();
+            scanTimer = setInterval(() => {
+                scanIdx = (scanIdx + 1) % state.buttons.length;
+                // Clear debounce on scan advance if enabled
+                if (state.scanClearDebounce && state.inDebounce) {
+                    if (debounceTimeoutId) {
+                        clearTimeout(debounceTimeoutId);
+                        debounceTimeoutId = null;
+                    }
+                    state.inDebounce = false;
+                    updateVisuals();
+                }
+                updateScanHighlight();
+                if (state.scanTick) playScanTick();
+            }, state.scanInterval * 1000);
+            const overlay = document.getElementById('scan-overlay');
+            if (overlay) overlay.classList.remove('hidden');
+        }
+
+        function stopScan() {
+            if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+            document.querySelectorAll('.app-button').forEach(b => {
+                b.classList.remove('scan-highlight');
+                b.style.removeProperty('--scan-color');
+                b.style.removeProperty('--scan-glow');
+            });
+            const overlay = document.getElementById('scan-overlay');
+            if (overlay) overlay.classList.add('hidden');
+        }
+
+        function updateScanHighlight() {
+            const color = SCAN_COLORS[state.scanColor] || SCAN_COLORS['Yellow'];
+            const btns = document.querySelectorAll('.app-button');
+            btns.forEach((b, i) => {
+                const active = i === scanIdx;
+                b.classList.toggle('scan-highlight', active);
+                if (active) {
+                    b.style.setProperty('--scan-color', color.ring);
+                    b.style.setProperty('--scan-glow', color.glow);
+                    // Announce button label if enabled
+                    if (state.scanAnnounce && window.speechSynthesis) {
+                        const btn = state.buttons[scanIdx];
+                        const labelText = (btn?.label || '').trim();
+                        if (labelText) {
+                            // Ensure voices are loaded
+                            if (state.voices.length === 0) {
+                                state.voices = window.speechSynthesis.getVoices();
+                            }
+
+                            window.speechSynthesis.cancel();
+                            const utterance = new SpeechSynthesisUtterance(labelText);
+                            if (state.voices.length > 0) {
+                                const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                                if (voice) utterance.voice = voice;
+                            }
+                            utterance.rate = 1.1;
+                            utterance.volume = 0.8;
+
+                            // Keep reference to prevent GC on iOS
+                            activeUtterances.push(utterance);
+                            utterance.onend = utterance.onerror = () => {
+                                const idx = activeUtterances.indexOf(utterance);
+                                if (idx > -1) activeUtterances.splice(idx, 1);
+                            };
+
+                            setTimeout(() => {
+                                window.speechSynthesis.speak(utterance);
+                            }, 10);
+                        }
+                    }
+                } else {
+                    b.style.removeProperty('--scan-color');
+                    b.style.removeProperty('--scan-glow');
+                }
+            });
+        }
+
+        // Brief mechanical-click sound played each time the scan selection advances.
+        // Built from a noise burst with fast exponential decay — no audio files needed.
+        function playScanTick() {
+            try {
+                const ctx = initAudioCtx();
+                if (!ctx || ctx.state !== 'running') return;
+                const dur = 0.018; // seconds
+                const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+                const data = buf.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.004));
+                }
+                const src = ctx.createBufferSource();
+                src.buffer = buf;
+                const g = ctx.createGain();
+                g.gain.value = 0.35;
+                src.connect(g);
+                g.connect(ctx.destination);
+                src.start();
+            } catch (e) { }
+        }
+
+        // --- AUTO GRID LAYOUT ---
+        // Positions and scales buttons to fit the current orientation cleanly.
+        // Landscape = side-by-side rows; Portrait = stacked columns.
+        function arrangeGrid() {
+            const n = state.buttons.length;
+            const land = window.innerWidth > window.innerHeight;
+
+            // [x%, y%] canvas positions and recommended scale per layout
+            let positions, scale;
+            if (n === 1) {
+                positions = [[50, 50]];
+                scale = 1.0;
+            } else if (n === 2) {
+                // Landscape: left/right halves  |  Portrait: top/bottom halves
+                positions = land
+                    ? [[26, 50], [74, 50]]
+                    : [[50, 28], [50, 72]];
+                scale = 0.9;
+            } else if (n === 3) {
+                // Landscape: evenly spaced row  |  Portrait: 2-up + 1 centered below
+                positions = land
+                    ? [[17, 50], [50, 50], [83, 50]]
+                    : [[30, 26], [70, 26], [50, 74]];
+                scale = land ? 0.70 : 0.82;
+            } else {
+                // 4 buttons: 2×2 grid always fits both orientations
+                positions = [[27, 26], [73, 26], [27, 74], [73, 74]];
+                scale = 0.78;
+            }
+
+            positions.forEach((p, i) => {
+                if (state.buttons[i]) {
+                    state.buttons[i].pos = { x: p[0], y: p[1] };
+                    state.buttons[i].scale = scale;
+                }
+            });
+            saveState();
+            renderButtons();
+        }
+
+        // ADDED: KEYBOARD SUPPORT
+        window.addEventListener('keydown', (e) => {
+            if (state.showSettings || state.isPositioningMode) return;
+            if (state.activationMode === 'scan') {
+                if (['Space', 'Enter', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+                    e.preventDefault();
+                    const btn = state.buttons[scanIdx];
+                    if (btn) activateSwitch(btn.id);
+                }
+                return;
+            }
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault();
+                if (state.buttons.length > 0) activateSwitch(state.buttons[0].id);
+            }
+            if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+                const idx = parseInt(e.code.slice(-1)) - 1;
+                if (state.buttons[idx]) activateSwitch(state.buttons[idx].id);
+            }
+        });
+
+        // --- PWA: INSTALL PROMPT ---
+        let deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            // Re-render system tab if open so the install button appears
+            if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
+        });
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
+        });
+
+        // --- TTS Primer ---
+        // Ensures user gesture "unlocks" SpeechSynthesis for subsequent calls.
+        // Modelled after proven working iOS implementation: speak then immediately
+        // cancel in the same call-stack — no delayed cancel which causes race
+        // conditions with the first real speak() call.
+        let ttsPrimed = false;
+        function primeTTS() {
+            if (ttsPrimed) return;
+            ttsPrimed = true;
+            if (window.speechSynthesis) {
+                const u = new SpeechSynthesisUtterance('');
+                u.volume = 0;
+                activeUtterances.push(u);
+                u.onend = u.onerror = () => {
+                    const idx = activeUtterances.indexOf(u);
+                    if (idx > -1) activeUtterances.splice(idx, 1);
+                };
+                window.speechSynthesis.speak(u);
+                window.speechSynthesis.cancel();
+            }
+            // Also resume AudioContext if suspended
+            initAudioCtx();
+        }
+        // Capture phase ensures we run before other handlers might stopPropagation
+        window.addEventListener('touchstart', primeTTS, { once: true, capture: true });
+        window.addEventListener('mousedown', primeTTS, { once: true, capture: true });
+        window.addEventListener('keydown', primeTTS, { once: true, capture: true });
+
+        // --- SERVICE WORKER REGISTRATION ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => { /* SW unavailable – file:// or blocked */ });
+            });
+        }
+
     </script>
 </body>
+
 </html>

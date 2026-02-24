@@ -13,7 +13,7 @@
  * Update flow: increment CACHE_VERSION to bust all caches on next SW install.
  */
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const CACHE_NAME = `touchtab-${CACHE_VERSION}`;
 
 /** Resources we pre-cache during install (app shell). */
