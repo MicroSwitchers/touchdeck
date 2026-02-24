@@ -421,7 +421,7 @@
                     class="w-full py-4 text-white font-black rounded-xl transition-all active:scale-[0.98] active:brightness-90"
                     style="background:linear-gradient(135deg,#4f46e5,#7c3aed,#9333ea);box-shadow:0 8px 32px rgba(99,102,241,0.35)">Done</button>
                 <div class="text-[10px] text-zinc-600 text-center mt-3 font-mono tracking-widest uppercase">Version
-                    1.0.1 (iOS TTS Fix)</div>
+                    1.0.2 (Force Update Enabled)</div>
             </div>
         </div>
     </div>
@@ -1607,9 +1607,13 @@
                     if (preferred) u.voice = preferred;
                 }
 
-                u.rate = 0.95;
+                u.pitch = 1.0;
+                u.volume = 1.0;
+                u.rate = 1.0;
 
-                // iOS-safe execution: cancel and start synchronously or with minimal delay
+                // iOS-safe execution: cancel and start synchronously or with minimal delay.
+                // Resume is a safety measure if engine gets stuck.
+                window.speechSynthesis.resume();
                 window.speechSynthesis.cancel();
 
                 ttsSpeechTimeout = setTimeout(() => {
@@ -1641,7 +1645,7 @@
 
                     window.speechSynthesis.speak(u);
                     ttsSpeechTimeout = null;
-                }, 15);
+                }, 10);
             } else {
                 state.isSpeaking = false;
                 state.playingButtonId = null;
@@ -2066,6 +2070,19 @@
                     </div>
 
                     <div class="pt-6" style="border-top:1px solid rgba(255,255,255,0.08)">
+                        <label class="text-xs font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="refresh-ccw" class="w-3 h-3"></i> App Maintenance</label>
+                        <div class="space-y-3">
+                            <button id="sys-update-btn" class="w-full p-4 rounded-xl text-white text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);box-shadow:0 4px 15px rgba(99,102,241,0.2)">
+                                <i data-lucide="download-cloud" class="w-4 h-4"></i> Force Update App
+                            </button>
+                            <button id="sys-test-speech" class="w-full p-4 rounded-xl text-zinc-300 text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all hover:brightness-110" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)">
+                                <i data-lucide="volume-2" class="w-4 h-4"></i> Test Robot Voice
+                            </button>
+                            <p class="text-[9px] text-zinc-600 text-center leading-relaxed">Use Force Update if changes aren't appearing on your iPad. This clears the local cache and pulls fresh from GitHub.</p>
+                        </div>
+                    </div>
+
+                    <div class="pt-6" style="border-top:1px solid rgba(255,255,255,0.08)">
                         <label class="text-xs font-bold text-red-400 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="database" class="w-3 h-3"></i> Storage</label>
                         <div class="flex items-center justify-between p-4 rounded-xl" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)">
                             <span class="text-xs font-bold text-zinc-300" id="storage-size">Calculating...</span>
@@ -2145,9 +2162,54 @@
                 if (sys.querySelector('#sys-voice')) {
                     sys.querySelector('#sys-voice').onchange = (e) => { state.selectedVoiceURI = e.target.value; saveState(); };
                 }
-                sys.querySelector('#lbl-on').onclick = () => { state.labelPos = 'on'; renderSettingsContent(); saveState(); renderButtons(); }
-                sys.querySelector('#lbl-under').onclick = () => { state.labelPos = 'under'; renderSettingsContent(); saveState(); renderButtons(); }
-                sys.querySelector('#lbl-off').onclick = () => { state.labelPos = 'off'; renderSettingsContent(); saveState(); renderButtons(); }
+                sys.querySelector('#lbl-on').onclick = () => { state.labelPos = 'on'; renderSettingsContent(); renderButtons(); saveState(); }
+                sys.querySelector('#lbl-under').onclick = () => { state.labelPos = 'under'; renderSettingsContent(); renderButtons(); saveState(); }
+                sys.querySelector('#lbl-off').onclick = () => { state.labelPos = 'off'; renderSettingsContent(); renderButtons(); saveState(); }
+
+                // Force Update Logic
+                const updateBtn = sys.querySelector('#sys-update-btn');
+                if (updateBtn) {
+                    updateBtn.onclick = async () => {
+                        updateBtn.disabled = true;
+                        updateBtn.textContent = 'Updating...';
+                        try {
+                            if ('serviceWorker' in navigator) {
+                                const registrations = await navigator.serviceWorker.getRegistrations();
+                                for (let registration of registrations) {
+                                    await registration.unregister();
+                                }
+                            }
+                            // Clear all caches
+                            if ('caches' in window) {
+                                const keys = await caches.keys();
+                                for (let key of keys) {
+                                    await caches.delete(key);
+                                }
+                            }
+                            // Hard reload
+                            window.location.reload(true);
+                        } catch (e) {
+                            alert('Update failed: ' + e.message);
+                            updateBtn.disabled = false;
+                            updateBtn.textContent = 'Force Update App';
+                        }
+                    };
+                }
+
+                // Test Speech Logic
+                const testBtn = sys.querySelector('#sys-test-speech');
+                if (testBtn) {
+                    testBtn.onclick = () => {
+                        try {
+                            primeTTS(); // Ensure context is unlocked
+                            const testBtnObj = { id: 'test', phrases: ['System check. Robot voice is working.'], phraseIndex: 0 };
+                            fallbackSpeak(testBtnObj, 'System check. Robot voice is working.');
+                        } catch (e) {
+                            alert('Speech Test Error: ' + e.message);
+                        }
+                    };
+                }
+
                 ORIENTATIONS.forEach(o => {
                     const el = sys.querySelector(`#ori-${o.id}`);
                     if (el) el.onclick = () => { state.orientationMode = o.id; renderSettingsContent(); saveState(); updateVisuals(); };
@@ -2404,6 +2466,11 @@
             if (window.speechSynthesis) {
                 const u = new SpeechSynthesisUtterance('');
                 u.volume = 0;
+                activeUtterances.push(u);
+                u.onend = u.onerror = () => {
+                    const idx = activeUtterances.indexOf(u);
+                    if (idx > -1) activeUtterances.splice(idx, 1);
+                };
                 window.speechSynthesis.speak(u);
                 window.speechSynthesis.cancel();
             }
