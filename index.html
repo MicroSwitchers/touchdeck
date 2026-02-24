@@ -79,9 +79,6 @@
         .recording-pulse { animation: pulse-record 1.5s infinite ease-in-out; }
 
         /* ── Slider styling ───────────────────────────────────────────────── */
-        /* ── Select dropdown option styling (prevents white-on-white) ──── */
-        select option { background: #1e1e2e; color: #e4e4e7; }
-
         input[type=range] { -webkit-appearance: none; appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb {
             -webkit-appearance: none; appearance: none;
@@ -534,40 +531,6 @@
             return audioCtx;
         }
 
-        // --- iOS-SAFE TTS SUPPORT ---
-        // Key iOS Safari requirements:
-        // - speak() MUST be called synchronously within the user-gesture handler.
-        //   setTimeout/Promise/await all break the gesture context and iOS silently
-        //   ignores the speak() call.
-        // - Keep references to active utterances so iOS doesn't garbage-collect them.
-        // - iOS can stall on long utterances (~15s). A periodic pause/resume nudge
-        //   keeps the engine alive.
-        const activeUtterances = [];
-        let iosKeepAliveTimer = null;
-
-        // Detect iOS/iPadOS (includes iPad reporting as Mac with touch)
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-            (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-
-        // iOS Safari workaround: speechSynthesis stalls on long utterances.
-        // Periodically nudge with pause/resume while speaking.
-        function startIOSKeepAlive() {
-            stopIOSKeepAlive();
-            if (!isIOS) return;
-            iosKeepAliveTimer = setInterval(() => {
-                if (window.speechSynthesis && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-                    window.speechSynthesis.pause();
-                    window.speechSynthesis.resume();
-                }
-            }, 5000);
-        }
-        function stopIOSKeepAlive() {
-            if (iosKeepAliveTimer) {
-                clearInterval(iosKeepAliveTimer);
-                iosKeepAliveTimer = null;
-            }
-        }
-
         // blob.arrayBuffer() polyfill for iOS <= 14.4 which lacks the method.
         function blobToArrayBuffer(blob) {
             if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer();
@@ -786,10 +749,8 @@
                 };
                 window.speechSynthesis.onvoiceschanged = loadVoices;
                 loadVoices();
-                // iOS can be very slow to enumerate voices; retry several times
+                // iOS requires a small delay to ensure voices are loaded
                 setTimeout(loadVoices, 100);
-                setTimeout(loadVoices, 500);
-                setTimeout(loadVoices, 1500);
             }
 
             renderButtons();
@@ -893,21 +854,12 @@
             };
             
             // Scan overlay — any tap/click activates the currently highlighted button
-            let scanLastTouch = 0;
-            document.getElementById('scan-overlay').addEventListener('touchstart', (e) => {
+            document.getElementById('scan-overlay').addEventListener('pointerdown', (e) => {
                 if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
                 e.preventDefault();
-                scanLastTouch = Date.now();
                 const btn = state.buttons[scanIdx];
                 if (btn) activateSwitch(btn.id);
             }, { passive: false });
-            document.getElementById('scan-overlay').addEventListener('mousedown', (e) => {
-                if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
-                e.preventDefault();
-                if (Date.now() - scanLastTouch < 800) return;
-                const btn = state.buttons[scanIdx];
-                if (btn) activateSwitch(btn.id);
-            });
 
             document.getElementById('lock-pos-btn').onclick = () => togglePositioning(false);
             document.getElementById('reset-pos-btn').onclick = () => {
@@ -1026,31 +978,15 @@
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
 
-                let lastTouchTime = 0;
-                btnEl.addEventListener('touchstart', (e) => {
-                    if (state.isPositioningMode) return;
-                    if (state.activationMode === 'press') {
-                        e.stopPropagation();
-                        // e.preventDefault(); // Removed to allow proper gesture recognition for TTS unlock
-                        lastTouchTime = Date.now();
-                        activateSwitch(btn.id);
-                    }
-                }, { passive: false });
-
-                btnEl.addEventListener('mousedown', (e) => {
-                    if (state.isPositioningMode) return;
-                    if (state.activationMode === 'press') {
-                        if (Date.now() - lastTouchTime < 800) return;
-                        e.stopPropagation();
-                        activateSwitch(btn.id);
-                    }
-                });
-
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
                         e.stopPropagation();
                         if (e.pointerType !== 'mouse') e.preventDefault();
                         initGesture(e, btn.id);
+                    } else if (state.activationMode === 'press') {
+                        e.stopPropagation();
+                        if (e.pointerType === 'touch') e.preventDefault();
+                        activateSwitch(btn.id);
                     } else if (state.activationMode === 'release' && !state.showSettings && state.touchTarget === 'button') {
                         // Depress the button visually immediately on touch-down.
                         // setPointerCapture keeps pointermove firing on this element even
@@ -1082,42 +1018,15 @@
                 });
 
                 // Release mode: activate when finger lifts if still on button
-                
-                // Helper to handle release logic (shared between pointerup and touchend fallback)
-                const handleRelease = (id) => {
-                    if (state.activeButtonId === btn.id) { 
-                        state.activeButtonId = null; 
-                        updateVisuals(); 
-                        activateSwitch(btn.id);
-                        return true;
-                    }
-                    return false;
-                };
-
-                btnEl.addEventListener('touchend', (e) => {
-                     // iOS Safari often needs touchend for audio unlock, while pointerup might fail.
-                     // We try to trigger here if release mode is active.
-                     if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
-                         e.preventDefault(); // Prevent ghost clicks
-                         // Clear all held pointers for this button since a finger lifted? 
-                         // Or try to process changed touches.
-                         // Since we don't have the pointerId mapping easily, let's just trigger if ANY pointer was held.
-                         // This might be slightly incorrect for multi-touch on same button, 
-                         // but "release mode" usually implies "lift finger to activate".
-                         if (heldPointers.size > 0) {
-                             heldPointers.clear(); // Clear all tracked pointers for this button to avoid double activation
-                             handleRelease(btn.id);
-                         }
-                     }
-                });
-
                 btnEl.addEventListener('pointerup', (e) => {
                     if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
                         e.stopPropagation();
-                        // If heldPointers has this pointer, it means touchend didn't clear it (e.g. mouse or missed event).
                         if (heldPointers.delete(e.pointerId)) {
-                             handleRelease(btn.id);
+                            // Finger lifted while still over button — activate
+                            if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                            activateSwitch(btn.id);
                         }
+                        // If already slid off, it was already activated in pointermove
                     }
                 });
 
@@ -1332,28 +1241,6 @@
             }
         });
 
-        let screenLastTouch = 0;
-        window.addEventListener('touchstart', (e) => {
-            if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
-                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
-                    // Prevent default to avoid mouse emulation double-firing if we are taking over the screen.
-                    // However, we allow default for potential TTS unlock similar to button logic if needed.
-                    // But if we remove preventDefault, mousedown will fire. We guard mousedown with screenLastTouch check.
-                    screenLastTouch = Date.now();
-                    activateSwitch(state.buttons[0].id);
-                }
-            }
-        }, { passive: false });
-
-        window.addEventListener('mousedown', (e) => {
-             if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
-                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
-                    if (Date.now() - screenLastTouch < 800) return;
-                    activateSwitch(state.buttons[0].id);
-                }
-            }
-        });
-
         window.addEventListener('touchend', () => {
             if (gesture.active) {
                 gesture.active = false;
@@ -1388,15 +1275,7 @@
 
             if (state.hapticsEnabled && navigator.vibrate) try{ navigator.vibrate(50); }catch(e){}
             
-            // On iOS, Web Audio (AudioContext) and Speech Synthesis both compete for
-            // the device's AVAudioSession. If the oscillator beep fires while TTS is
-            // about to speak, iOS silently discards the speak() call because the audio
-            // route is already claimed by the AudioContext. Skip the cue on iOS when
-            // this button will use TTS (no recorded audio for this phrase index).
-            const _willUseTTS = !btn || !(btn.hasAudio && btn.hasAudio[btn.phraseIndex]);
-            const _skipCueForTTS = isIOS && _willUseTTS;
-
-            if (state.audioCueEnabled && !_skipCueForTTS) {
+            if (state.audioCueEnabled) {
                  try {
                      const ctx = initAudioCtx();
                      if (ctx) {
@@ -1428,47 +1307,67 @@
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
-            let played = false;
-            // Optimistic check: if we know there's audio, try to fetch/play it.
-            // If NOT, we MUST call fallbackSpeak synchronously to satisfy iOS TTS gesture requirements.
-            // The async fetch below will break the gesture context for speech synthesis, 
-            // so we only go down that path if we really expect an audio file.
-            if (btn.hasAudio && btn.hasAudio[idx]) {
-                // We expect audio, so we risk the async fetch.
-                // If it fails, fallbackSpeak might fail on iOS due to lost gesture context, 
-                // but that is an acceptable trade-off since the user explicitly recorded audio.
-                getAudioBlob(audioKey).then(async (blob) => {
-                    if (blob) {
-                        played = true;
-                        state.isSpeaking = true;
-                        state.playingButtonId = btn.id;
-                        updateVisuals();
-                        currentPlaybackSource = await createAndPlayAudio(blob, {
-                            onEnded: () => {
-                                currentPlaybackSource = null;
-                                state.isSpeaking = false;
-                                state.playingButtonId = null;
-                                updateVisuals();
-                            },
-                            onError: () => {
-                                currentPlaybackSource = null;
-                                state.isSpeaking = false;
-                                state.playingButtonId = null;
-                                fallbackSpeak(btn, phraseText);
-                            }
-                        });
-                    } else {
-                        // Expected audio but found none?
-                        fallbackSpeak(btn, phraseText); 
-                    }
-                });
-                // We mark 'played' as true here to skip the synchronous fallback below,
-                // effectively delegating responsibility to the promise chain above.
-                played = true; 
+            // iOS TTS FIX: speechSynthesis.speak() MUST be called synchronously inside
+            // the user-gesture handler. Any await severs iOS's gesture-trust chain and
+            // speak() is silently blocked afterward — even with a 0 ms setTimeout.
+            //
+            // Strategy: always queue the utterance HERE (synchronously, before any
+            // IndexedDB await). If recorded audio then loads, cancel() it immediately
+            // and play the blob instead. If audio is absent or fails to load, the
+            // utterance is already queued and plays normally as the fallback.
+            let pendingUtterance = null;
+            if (window.speechSynthesis && phraseText) {
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(phraseText);
+                u.rate = 0.9;
+                if (state.voices.length === 0) state.voices = window.speechSynthesis.getVoices();
+                if (state.voices.length > 0) {
+                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
+                    if (v) u.voice = v;
+                }
+                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btn.id; updateVisuals(); };
+                u.onend = u.onerror = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
+                window.speechSynthesis.speak(u);
+                pendingUtterance = u;
             }
-            
-            // If we didn't enter the audio block, 'played' is false, so we speak immediately/synchronously.
-            if (!played) fallbackSpeak(btn, phraseText);
+
+            let played = false;
+            if (btn.hasAudio && btn.hasAudio[idx]) {
+                const blob = await getAudioBlob(audioKey);
+                if (blob) {
+                    // Audio loaded — cancel the speculative TTS and play the recording.
+                    if (pendingUtterance) { window.speechSynthesis.cancel(); pendingUtterance = null; }
+                    played = true;
+                    state.isSpeaking = true;
+                    state.playingButtonId = btn.id;
+                    updateVisuals();
+                    // Use AudioContext playback (iOS-safe) instead of HTMLAudioElement.
+                    // Awaiting here only waits for decode+start (not full playback), so
+                    // phraseIndex cycling below still happens immediately after audio begins.
+                    currentPlaybackSource = await createAndPlayAudio(blob, {
+                        onEnded: () => {
+                            currentPlaybackSource = null;
+                            state.isSpeaking = false;
+                            state.playingButtonId = null;
+                            updateVisuals();
+                        },
+                        onError: () => {
+                            currentPlaybackSource = null;
+                            state.isSpeaking = false;
+                            state.playingButtonId = null;
+                            updateVisuals();
+                        }
+                    });
+                }
+                // If blob is null, pendingUtterance is already speaking — nothing more to do.
+            }
+
+            if (!played && !pendingUtterance) {
+                // No audio and no phrase text — ensure speaking state is cleared.
+                state.isSpeaking = false;
+                state.playingButtonId = null;
+                updateVisuals();
+            }
 
             const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
             if (valid.length > 1) {
@@ -1484,79 +1383,51 @@
 
         // txt is pre-captured so we always speak the right phrase even if phraseIndex
         // has already advanced by the time an audio error fires asynchronously.
-        // Architecture mirrors the verified working iOS TTS reference script:
-        //   cancel if speaking → resume only if paused → speak with pitch/rate 1.0
         function fallbackSpeak(btn, txt) {
             if (txt === undefined) txt = (btn.phrases[btn.phraseIndex] || btn.phrases.find(p => p) || '').trim();
-            if (!txt || !window.speechSynthesis) {
+            if (!txt) {
+                // Nothing to speak — ensure speaking indicators are cleared
                 state.isSpeaking = false;
                 state.playingButtonId = null;
                 updateVisuals();
                 return;
             }
-
-            const synth = window.speechSynthesis;
-
-            // In an AAC app, a new button press always takes priority over current speech.
-            if (synth.speaking) synth.cancel();
-
-            // Only resume if the engine is actually paused — unconditional resume() can
-            // interfere on some iOS versions when the engine is in a good state.
-            if (synth.paused) synth.resume();
-
-            // Refresh voices if not yet loaded (iOS loads them lazily)
-            if (state.voices.length === 0) {
-                state.voices = synth.getVoices();
-                if (state.voices.length > 0 && !state.selectedVoiceURI) {
-                    state.selectedVoiceURI = state.voices[0].voiceURI;
+            if (window.speechSynthesis) {
+                // iOS fix: Ensure voices are loaded
+                if (state.voices.length === 0) {
+                    state.voices = window.speechSynthesis.getVoices();
+                    if (state.voices.length > 0 && !state.selectedVoiceURI) {
+                        state.selectedVoiceURI = state.voices[0].voiceURI;
+                    }
                 }
-            }
-
-            const u = new SpeechSynthesisUtterance(txt);
-
-            // Voice selection: honour the user's saved choice, then fall back to
-            // Samantha (the standard built-in iOS en-US voice) or any default en-US
-            // voice — matching the approach in the verified working iOS reference script.
-            let voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
-            if (!voice) {
-                voice = state.voices.find(v => v.name.includes('Samantha')) ||
-                        state.voices.find(v => v.lang === 'en-US' && v.default) ||
-                        state.voices.find(v => v.lang.startsWith('en-'));
-            }
-            if (voice) u.voice = voice;
-
-            // iOS handles pitch 1.0 and rate 1.0 most reliably (per reference script)
-            u.pitch  = 1.0;
-            u.rate   = 1.0;
-            u.volume = 1.0;
-
-            // Keep a reference so iOS doesn't GC the utterance mid-speech
-            activeUtterances.push(u);
-
-            u.onstart = () => {
-                state.isSpeaking = true;
-                state.playingButtonId = btn.id;
-                updateVisuals();
-            };
-            u.onend = () => {
+                
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(txt);
+                
+                // iOS fix: Only set voice if we have voices available
+                if (state.voices.length > 0) {
+                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
+                    if (v) u.voice = v;
+                }
+                
+                u.rate = 0.9;
+                u.onstart = () => { 
+                    state.isSpeaking = true; 
+                    state.playingButtonId = btn.id;
+                    updateVisuals(); 
+                };
+                u.onend = u.onerror = () => { 
+                    state.isSpeaking = false; 
+                    state.playingButtonId = null; 
+                    updateVisuals(); 
+                };
+                
+                window.speechSynthesis.speak(u);
+            } else {
                 state.isSpeaking = false;
                 state.playingButtonId = null;
                 updateVisuals();
-                const idx = activeUtterances.indexOf(u);
-                if (idx > -1) activeUtterances.splice(idx, 1);
-            };
-            u.onerror = (event) => {
-                if (event.error !== 'interrupted' && event.error !== 'canceled') {
-                    console.warn('Speech error:', event.error);
-                }
-                state.isSpeaking = false;
-                state.playingButtonId = null;
-                updateVisuals();
-                const idx = activeUtterances.indexOf(u);
-                if (idx > -1) activeUtterances.splice(idx, 1);
-            };
-
-            synth.speak(u);
+            }
         }
 
         async function toggleRecording(btnId, phraseIndex, btnElement) {
@@ -1828,8 +1699,8 @@
                  const sys = document.createElement('div');
                  sys.className = 'space-y-6';
                  const voiceOptions = state.voices.length
-                     ? state.voices.map(v => `<option value="${v.voiceURI}" style="background:#1e1e2e;color:#e4e4e7" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
-                     : '<option value="" style="background:#1e1e2e;color:#e4e4e7">No voices available</option>';
+                     ? state.voices.map(v => `<option value="${v.voiceURI}" ${v.voiceURI === state.selectedVoiceURI ? 'selected' : ''}>${v.name} (${v.lang})</option>`).join('')
+                     : '<option value="">No voices available</option>';
                  const activeToggle = 'text-indigo-200 border-indigo-400/70';
                  const activeToggleBg = 'linear-gradient(135deg,rgba(79,70,229,0.28),rgba(124,58,237,0.18))';
                  const inactiveToggle = 'text-zinc-400 border-white/10 hover:text-zinc-200';
@@ -2173,28 +2044,22 @@
                         const btn = state.buttons[scanIdx];
                         const labelText = (btn?.label || '').trim();
                         if (labelText) {
-                            // Ensure voices are loaded
+                            // iOS fix: Ensure voices are loaded
                             if (state.voices.length === 0) {
                                 state.voices = window.speechSynthesis.getVoices();
                             }
-
-                            window.speechSynthesis.cancel();
+                            
                             const utterance = new SpeechSynthesisUtterance(labelText);
+                            
+                            // iOS fix: Only set voice if available
                             if (state.voices.length > 0) {
                                 const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
                                 if (voice) utterance.voice = voice;
                             }
-                            utterance.rate = 1.1;
+                            
+                            utterance.rate = 1.1; // Slightly faster for quick scanning
                             utterance.volume = 0.8;
-
-                            // Keep reference to prevent GC on iOS
-                            activeUtterances.push(utterance);
-                            utterance.onend = utterance.onerror = () => {
-                                const idx = activeUtterances.indexOf(utterance);
-                                if (idx > -1) activeUtterances.splice(idx, 1);
-                            };
-
-                            // Speak synchronously — no setTimeout (breaks iOS gesture context)
+                            
                             window.speechSynthesis.speak(utterance);
                         }
                     }
@@ -2299,53 +2164,6 @@
         window.addEventListener('appinstalled', () => {
             deferredInstallPrompt = null;
             if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
-        });
-
-        // --- First-Gesture Primer ---
-        // Fires once on the very first user gesture to unlock the AudioContext
-        // (needed for recorded-audio playback) and pre-load voices (iOS loads
-        // them lazily). TTS priming is now done inside fallbackSpeak on the
-        // actual button press — see the iosPrimed logic there.
-        let ttsPrimed  = false;
-        let iosPrimed  = false; // set true after the first gesture-initiated speak()
-        function primeTTS() {
-            if (ttsPrimed) return;
-            ttsPrimed = true;
-
-            // Unlock AudioContext (critical for recorded-audio playback on iOS)
-            initAudioCtx();
-
-            if (window.speechSynthesis) {
-                // Resume synthesis in case it was auto-paused
-                window.speechSynthesis.resume();
-                // Pre-load voices — iOS defers this until first interaction
-                if (state.voices.length === 0) {
-                    state.voices = window.speechSynthesis.getVoices();
-                }
-            }
-        }
-        // Capture phase ensures we run before other handlers might stopPropagation
-        window.addEventListener('touchstart', primeTTS, { once: true, capture: true });
-        window.addEventListener('mousedown', primeTTS, { once: true, capture: true });
-        window.addEventListener('keydown', primeTTS, { once: true, capture: true });
-
-        // iOS PWA: the TTS engine loses its "primed" state when the app is backgrounded
-        // (screen lock, app switcher, notification centre, etc). Re-prime on next gesture
-        // after returning to foreground so TTS works again without a page reload.
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                if (window.speechSynthesis) window.speechSynthesis.resume();
-                // iOS loses both the AudioContext lock and the TTS primed state
-                // when the app is backgrounded (screen lock, app switcher, etc).
-                // Reset both flags so the next gesture re-initialises everything.
-                iosPrimed = false;
-                if (ttsPrimed) {
-                    ttsPrimed = false;
-                    window.addEventListener('touchstart', primeTTS, { once: true, capture: true });
-                    window.addEventListener('mousedown',  primeTTS, { once: true, capture: true });
-                    window.addEventListener('keydown',    primeTTS, { once: true, capture: true });
-                }
-            }
         });
 
         // --- SERVICE WORKER REGISTRATION ---
