@@ -867,12 +867,21 @@
             };
             
             // Scan overlay — any tap/click activates the currently highlighted button
-            document.getElementById('scan-overlay').addEventListener('pointerdown', (e) => {
+            let scanLastTouch = 0;
+            document.getElementById('scan-overlay').addEventListener('touchstart', (e) => {
                 if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
                 e.preventDefault();
+                scanLastTouch = Date.now();
                 const btn = state.buttons[scanIdx];
                 if (btn) activateSwitch(btn.id);
             }, { passive: false });
+            document.getElementById('scan-overlay').addEventListener('mousedown', (e) => {
+                if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
+                e.preventDefault();
+                if (Date.now() - scanLastTouch < 800) return;
+                const btn = state.buttons[scanIdx];
+                if (btn) activateSwitch(btn.id);
+            });
 
             document.getElementById('lock-pos-btn').onclick = () => togglePositioning(false);
             document.getElementById('reset-pos-btn').onclick = () => {
@@ -991,15 +1000,31 @@
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
 
+                let lastTouchTime = 0;
+                btnEl.addEventListener('touchstart', (e) => {
+                    if (state.isPositioningMode) return;
+                    if (state.activationMode === 'press') {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        lastTouchTime = Date.now();
+                        activateSwitch(btn.id);
+                    }
+                }, { passive: false });
+
+                btnEl.addEventListener('mousedown', (e) => {
+                    if (state.isPositioningMode) return;
+                    if (state.activationMode === 'press') {
+                        if (Date.now() - lastTouchTime < 800) return;
+                        e.stopPropagation();
+                        activateSwitch(btn.id);
+                    }
+                });
+
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
                         e.stopPropagation();
                         if (e.pointerType !== 'mouse') e.preventDefault();
                         initGesture(e, btn.id);
-                    } else if (state.activationMode === 'press') {
-                        e.stopPropagation();
-                        if (e.pointerType === 'touch') e.preventDefault();
-                        activateSwitch(btn.id);
                     } else if (state.activationMode === 'release' && !state.showSettings && state.touchTarget === 'button') {
                         // Depress the button visually immediately on touch-down.
                         // setPointerCapture keeps pointermove firing on this element even
@@ -1031,15 +1056,42 @@
                 });
 
                 // Release mode: activate when finger lifts if still on button
+                
+                // Helper to handle release logic (shared between pointerup and touchend fallback)
+                const handleRelease = (id) => {
+                    if (state.activeButtonId === btn.id) { 
+                        state.activeButtonId = null; 
+                        updateVisuals(); 
+                        activateSwitch(btn.id);
+                        return true;
+                    }
+                    return false;
+                };
+
+                btnEl.addEventListener('touchend', (e) => {
+                     // iOS Safari often needs touchend for audio unlock, while pointerup might fail.
+                     // We try to trigger here if release mode is active.
+                     if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
+                         e.preventDefault(); // Prevent ghost clicks
+                         // Clear all held pointers for this button since a finger lifted? 
+                         // Or try to process changed touches.
+                         // Since we don't have the pointerId mapping easily, let's just trigger if ANY pointer was held.
+                         // This might be slightly incorrect for multi-touch on same button, 
+                         // but "release mode" usually implies "lift finger to activate".
+                         if (heldPointers.size > 0) {
+                             heldPointers.clear(); // Clear all tracked pointers for this button to avoid double activation
+                             handleRelease(btn.id);
+                         }
+                     }
+                });
+
                 btnEl.addEventListener('pointerup', (e) => {
                     if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
                         e.stopPropagation();
+                        // If heldPointers has this pointer, it means touchend didn't clear it (e.g. mouse or missed event).
                         if (heldPointers.delete(e.pointerId)) {
-                            // Finger lifted while still over button — activate
-                            if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                            activateSwitch(btn.id);
+                             handleRelease(btn.id);
                         }
-                        // If already slid off, it was already activated in pointermove
                     }
                 });
 
@@ -1251,6 +1303,32 @@
                 btn.pos.x = Math.max(0, Math.min(100, gesture.startPos.x + (dx / rect.width) * 100));
                 btn.pos.y = Math.max(0, Math.min(100, gesture.startPos.y + (dy / rect.height) * 100));
                 updateButtonPositionDOM(gesture.btnId);
+            }
+        });
+
+        let screenLastTouch = 0;
+        window.addEventListener('touchstart', (e) => {
+            if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                    // Prevent default to avoid mouse emulation double-firing if we are taking over the screen
+                    // But we must be careful not to block settings interactions if we were wrong about the context?
+                    // We checked !state.showSettings.
+                    // If we preventDefault, we might block scrolling? But with 1 button full-screen, scrolling is likely not intended/possible?
+                    // However, to be safe and ensure 'mouse emulation' doesn't fire click/mousedown later:
+                    // e.preventDefault(); 
+                    // Actually, if we don't preventDefault, mousedown will fire. We guard mousedown with screenLastTouch check.
+                    screenLastTouch = Date.now();
+                    activateSwitch(state.buttons[0].id);
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener('mousedown', (e) => {
+             if (state.activationMode === 'press' && !state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                    if (Date.now() - screenLastTouch < 800) return;
+                    activateSwitch(state.buttons[0].id);
+                }
             }
         });
 
@@ -2179,6 +2257,28 @@
             deferredInstallPrompt = null;
             if (state.showSettings && state.settingsTab === 'system') renderSettingsContent();
         });
+
+        // --- TTS Primer ---
+        // Ensures user gesture "unlocks" SpeechSynthesis for subsequent calls.
+        let ttsPrimed = false;
+        function primeTTS() {
+            if (ttsPrimed) return;
+            ttsPrimed = true;
+            if (window.speechSynthesis) {
+                // Speak a silent utterance to unlock the synthesis engine on iOS
+                const u = new SpeechSynthesisUtterance('');
+                u.volume = 0;
+                window.speechSynthesis.speak(u);
+                // Immediately cancel to not block queue but keep engine 'warm'
+                window.speechSynthesis.cancel();
+            }
+            // Also resume AudioContext if suspended
+            initAudioCtx();
+        }
+        // Capture phase ensures we run before other handlers might stopPropagation
+        window.addEventListener('touchstart', primeTTS, { once: true, capture: true });
+        window.addEventListener('mousedown', primeTTS, { once: true, capture: true });
+        window.addEventListener('keydown', primeTTS, { once: true, capture: true });
 
         // --- SERVICE WORKER REGISTRATION ---
         if ('serviceWorker' in navigator) {
