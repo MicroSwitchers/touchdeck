@@ -13,8 +13,8 @@
  * Update flow: increment CACHE_VERSION to bust all caches on next SW install.
  */
 
-const CACHE_VERSION = 'v1';
-const CACHE_NAME    = `touchtab-${CACHE_VERSION}`;
+const CACHE_VERSION = 'v5';
+const CACHE_NAME = `touchtab-${CACHE_VERSION}`;
 
 /** Resources we pre-cache during install (app shell). */
 const APP_SHELL = [
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (event) => {
  * nothing is cached.
  */
 async function cacheFirstWithUpdate(request) {
-    const cache  = await caches.open(CACHE_NAME);
+    const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request);
 
     // Fetch a fresh copy in the background regardless.
@@ -108,7 +108,7 @@ async function cacheFirstWithUpdate(request) {
  * fetching a fresh copy in the background for the next request.
  */
 async function staleWhileRevalidate(request) {
-    const cache  = await caches.open(CACHE_NAME);
+    const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request);
 
     // Always kick off a background update.
