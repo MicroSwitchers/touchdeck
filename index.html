@@ -749,6 +749,8 @@
                 };
                 window.speechSynthesis.onvoiceschanged = loadVoices;
                 loadVoices();
+                // iOS requires a small delay to ensure voices are loaded
+                setTimeout(loadVoices, 100);
             }
 
             renderButtons();
@@ -1358,10 +1360,23 @@
                 return;
             }
             if (window.speechSynthesis) {
+                // iOS fix: Ensure voices are loaded
+                if (state.voices.length === 0) {
+                    state.voices = window.speechSynthesis.getVoices();
+                    if (state.voices.length > 0 && !state.selectedVoiceURI) {
+                        state.selectedVoiceURI = state.voices[0].voiceURI;
+                    }
+                }
+                
                 window.speechSynthesis.cancel();
                 const u = new SpeechSynthesisUtterance(txt);
-                const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
-                if (v) u.voice = v;
+                
+                // iOS fix: Only set voice if we have voices available
+                if (state.voices.length > 0) {
+                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
+                    if (v) u.voice = v;
+                }
+                
                 u.rate = 0.9;
                 u.onstart = () => { 
                     state.isSpeaking = true; 
@@ -1373,7 +1388,11 @@
                     state.playingButtonId = null; 
                     updateVisuals(); 
                 };
-                window.speechSynthesis.speak(u);
+                
+                // iOS fix: Small delay before speaking
+                setTimeout(() => {
+                    window.speechSynthesis.speak(u);
+                }, 10);
             } else {
                 state.isSpeaking = false;
                 state.playingButtonId = null;
@@ -1995,12 +2014,26 @@
                         const btn = state.buttons[scanIdx];
                         const labelText = (btn?.label || '').trim();
                         if (labelText) {
+                            // iOS fix: Ensure voices are loaded
+                            if (state.voices.length === 0) {
+                                state.voices = window.speechSynthesis.getVoices();
+                            }
+                            
                             const utterance = new SpeechSynthesisUtterance(labelText);
-                            const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
-                            if (voice) utterance.voice = voice;
+                            
+                            // iOS fix: Only set voice if available
+                            if (state.voices.length > 0) {
+                                const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                                if (voice) utterance.voice = voice;
+                            }
+                            
                             utterance.rate = 1.1; // Slightly faster for quick scanning
                             utterance.volume = 0.8;
-                            window.speechSynthesis.speak(utterance);
+                            
+                            // iOS fix: Small delay before speaking
+                            setTimeout(() => {
+                                window.speechSynthesis.speak(utterance);
+                            }, 10);
                         }
                     }
                 } else {
