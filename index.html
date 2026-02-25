@@ -390,6 +390,7 @@
             scanInterval: 2.0,
             scanColor: 'Yellow',
             scanTick: false,
+            scanAnnounce: false,
             scanClearDebounce: false,
             outputBarPos: { x: 50, y: 92 },
             outputBarScale: 1.0,
@@ -401,7 +402,7 @@
             label: '',
             phrases: ["", "", ""],
             hasAudio: [false, false, false], 
-            color: COLORS[1],
+            color: COLORS[0],
             pos: { x: 50, y: 50 },
             scale: 1.0,
             phraseIndex: 0
@@ -622,6 +623,7 @@
                 state.scanInterval = Number(safeGetItem('t2w_scan_interval')) || 2.0;
                 state.scanColor = safeGetItem('t2w_scan_color') || 'Yellow';
                 state.scanTick = safeGetItem('t2w_scan_tick') === 'true';
+                state.scanAnnounce = safeGetItem('t2w_scan_announce') === 'true';
                 state.scanClearDebounce = safeGetItem('t2w_scan_clear_debounce') === 'true';
                 
                 const savedOutputBarPos = safeGetItem('t2w_output_bar_pos');
@@ -665,6 +667,7 @@
             safeSetItem('t2w_scan_interval', state.scanInterval);
             safeSetItem('t2w_scan_color', state.scanColor);
             safeSetItem('t2w_scan_tick', state.scanTick);
+            safeSetItem('t2w_scan_announce', state.scanAnnounce);
             safeSetItem('t2w_scan_clear_debounce', state.scanClearDebounce);
             safeSetItem('t2w_output_bar_pos', JSON.stringify(state.outputBarPos));
             safeSetItem('t2w_output_bar_scale', state.outputBarScale);
@@ -1285,8 +1288,10 @@
 
             function speak(text, btnId) {
                 if (!synth || !text) return;
-                // Don't cut off speech that is already in progress.
-                if (synth.speaking) return;
+                // Cancel any scan-label or previous utterance so the phrase always plays.
+                // Guard: only cancel if something is actually queued/playing to avoid
+                // putting the engine into a mid-reset state unnecessarily.
+                if (synth.speaking || synth.pending) synth.cancel();
                 // iOS workaround: resume if the engine was paused (background/cold-start).
                 if (synth.paused) synth.resume();
 
@@ -1300,8 +1305,13 @@
                 const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
                 if (voice) u.voice = voice;
 
-                u.onstart = () => { state.isSpeaking = true;  state.playingButtonId = btnId; updateVisuals(); };
-                u.onend   = () => { state.isSpeaking = false; state.playingButtonId = null;  updateVisuals(); };
+                // Mark speaking IMMEDIATELY (before onstart fires) so the scan-announce
+                // guard in updateScanHighlight sees it and doesn't cancel this utterance.
+                state.isSpeaking = true;
+                state.playingButtonId = btnId;
+                updateVisuals();
+
+                u.onend   = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
                 u.onerror = (ev) => { console.warn('TTS:', ev.error); state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
 
                 synth.speak(u);
@@ -1685,6 +1695,13 @@
                             </div>
                             <div class="flex items-center justify-between" style="${sliderCard}">
                                 <div>
+                                    <span class="text-[10px] uppercase font-bold text-zinc-400 block">Speak Button Name</span>
+                                    <span class="text-[9px] text-zinc-500">Read button label aloud as scanner highlights it</span>
+                                </div>
+                                <button id="sys-scan-announce" class="px-4 py-2 rounded-xl border text-xs font-bold uppercase transition-all ${state.scanAnnounce?activeToggle:inactiveToggle}" style="background:${state.scanAnnounce?activeToggleBg:inactiveToggleBg}">${state.scanAnnounce?'On':'Off'}</button>
+                            </div>
+                            <div class="flex items-center justify-between" style="${sliderCard}">
+                                <div>
                                     <span class="text-[10px] uppercase font-bold text-zinc-400 block">Clear Cooldown on Advance</span>
                                     <span class="text-[9px] text-zinc-500">Resets activation cooldown when scanner moves</span>
                                 </div>
@@ -1831,6 +1848,13 @@
                          saveState();
                      };
                  }
+                 if (sys.querySelector('#sys-scan-announce')) {
+                     sys.querySelector('#sys-scan-announce').onclick = () => {
+                         state.scanAnnounce = !state.scanAnnounce;
+                         renderSettingsContent();
+                         saveState();
+                     };
+                 }
                  if (sys.querySelector('#sys-scan-clear-debounce')) {
                      sys.querySelector('#sys-scan-clear-debounce').onclick = () => {
                          state.scanClearDebounce = !state.scanClearDebounce;
@@ -1973,6 +1997,24 @@
                     b.style.removeProperty('--scan-glow');
                 }
             });
+
+            // Speak the button label as the scan highlight moves to it.
+            // We call the synth directly here so each new label cancels the previous
+            // one. We respect state.isSpeaking so a button-phrase TTS is never cut off.
+            if (state.scanAnnounce && window.speechSynthesis && !state.isSpeaking) {
+                const btn = state.buttons[scanIdx];
+                const labelText = (btn?.label || '').trim();
+                if (labelText) {
+                    const synth = window.speechSynthesis;
+                    synth.cancel(); // stop any previous scan-label utterance
+                    if (!state.voices.length) state.voices = synth.getVoices();
+                    const u = new SpeechSynthesisUtterance(labelText);
+                    u.rate = 1.1;
+                    const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                    if (voice) u.voice = voice;
+                    synth.speak(u);
+                }
+            }
         }
 
         // Brief mechanical-click sound played each time the scan selection advances.
