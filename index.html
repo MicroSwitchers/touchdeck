@@ -1014,6 +1014,14 @@
                     updateVisuals();
                 }, { passive: true });
 
+                btnEl.addEventListener('touchend', () => {
+                    // Clear visual press feedback when touch ends
+                    if (state.activeButtonId === btn.id) { 
+                        state.activeButtonId = null; 
+                        updateVisuals(); 
+                    }
+                }, { passive: true });
+
                 btnEl.addEventListener('touchcancel', () => {
                     if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
                 });
@@ -1038,9 +1046,14 @@
                     }
                 });
 
-                btnEl.addEventListener('pointercancel', () => {
-                    heldPointers.clear();
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                btnEl.addEventListener('pointerup', (e) => {
+                    // Clear visual press feedback for mouse / stylus when pointer is released
+                    if (!state.isPositioningMode && e.pointerType !== 'touch') {
+                        if (state.activeButtonId === btn.id) {
+                            state.activeButtonId = null;
+                            updateVisuals();
+                        }
+                    }
                 });
 
                 btnEl.addEventListener('pointercancel', (e) => {
