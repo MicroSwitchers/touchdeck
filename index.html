@@ -551,6 +551,7 @@
             try {
                 const ctx = initAudioCtx();
                 if (!ctx) throw new Error('No AudioContext available');
+                if (ctx.state === 'suspended') await ctx.resume();
                 const arrayBuffer = await blobToArrayBuffer(blob);
                 const audioBuffer = await new Promise((resolve, reject) => {
                     ctx.decodeAudioData(arrayBuffer, resolve, reject);
