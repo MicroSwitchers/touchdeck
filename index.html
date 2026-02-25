@@ -820,7 +820,7 @@
                 const hint = document.createElement('div');
                 hint.id = 'start-hint';
                 hint.className = 'fixed bottom-10 left-1/2 z-50 -translate-x-1/2 bg-zinc-800/95 backdrop-blur border border-zinc-700 text-zinc-200 text-sm font-semibold px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 pointer-events-none select-none';
-                hint.innerHTML = `<i data-lucide="settings" class="w-4 h-4 text-indigo-400 shrink-0"></i>&thinsp;Hold the <span class="text-indigo-300 mx-1">&#9881;</span> icon 3 seconds to configure`;
+                hint.innerHTML = `Hold the <span class="text-indigo-300 mx-1">&#9881;</span> icon 3 seconds to configure`;
                 hint.style.opacity = '0';
                 hint.style.transform = 'translateX(-50%) translateY(16px)';
                 document.body.appendChild(hint);
@@ -1349,7 +1349,9 @@
             const idx = btn.phraseIndex;
             const phraseText = (btn.phrases[idx] || '').trim();
             const displayText = phraseText || btn.label || '';
-            if (displayText) showOutputBar(displayText);
+            // Show caption: phrase/label text, or a speaker symbol if only a recording exists.
+            const captionText = displayText || (btn.hasAudio?.[idx] ? '🔊' : '');
+            if (captionText) showOutputBar(captionText);
 
             // If this slot has a recorded audio clip, play it — no TTS.
             // If the recording is deleted, the slot falls back to TTS automatically.
@@ -2002,17 +2004,20 @@
                 }
             });
 
+            // Always show the highlighted button label in the caption bar while scanning.
+            const scanBtn = state.buttons[scanIdx];
+            const scanLabel = (scanBtn?.label || '').trim();
+            if (scanLabel && !state.isSpeaking) showOutputBar(scanLabel);
+
             // Speak the button label as the scan highlight moves to it.
             // We call the synth directly here so each new label cancels the previous
             // one. We respect state.isSpeaking so a button-phrase TTS is never cut off.
             if (state.scanAnnounce && window.speechSynthesis && !state.isSpeaking) {
-                const btn = state.buttons[scanIdx];
-                const labelText = (btn?.label || '').trim();
-                if (labelText) {
+                if (scanLabel) {
                     const synth = window.speechSynthesis;
                     synth.cancel(); // stop any previous scan-label utterance
                     if (!state.voices.length) state.voices = synth.getVoices();
-                    const u = new SpeechSynthesisUtterance(labelText);
+                    const u = new SpeechSynthesisUtterance(scanLabel);
                     u.rate = 1.1;
                     const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
                     if (voice) u.voice = voice;
