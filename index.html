@@ -994,38 +994,65 @@
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
 
-                // ── Activation via click ───────────────────────────────────────────────
-                // `click` is the only event that reliably grants iOS Safari permission
-                // to call speechSynthesis.speak(). It fires after: touchend (touch
-                // devices), mouseup (mouse), or Enter (keyboard). We do NOT call
-                // e.preventDefault() on touchstart so the browser still generates the
-                // click event. Instead, touch-action:manipulation on the element CSS
-                // eliminates the 300 ms double-tap delay without JS intervention.
-                //
-                // All activation modes (press / release / screen) use click so TTS
-                // always originates from a click-class gesture.
+                // ── Touch events ──────────────────────────────────────────────────────
+                // Do NOT call preventDefault on touchstart — the browser must still
+                // generate a click event for iOS Safari TTS permission (release mode).
+                // touch-action:manipulation on the button CSS removes the 300 ms
+                // double-tap delay without JS intervention.
 
                 btnEl.addEventListener('touchstart', (e) => {
-                    // Visual press feedback only — do NOT preventDefault here or click
-                    // will be suppressed on iOS and TTS will break.
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
                     state.activeButtonId = btn.id;
                     updateVisuals();
+                    // Press mode: activate immediately on touch-down.
+                    if (state.activationMode === 'press') activateSwitch(btn.id);
                 }, { passive: true });
+
+                // Clear visual press when the finger drags outside the button area.
+                btnEl.addEventListener('touchmove', (e) => {
+                    if (state.activeButtonId !== btn.id) return;
+                    const t = e.touches[0];
+                    if (!t) return;
+                    const r = btnEl.getBoundingClientRect();
+                    if (t.clientX < r.left || t.clientX > r.right ||
+                        t.clientY < r.top  || t.clientY > r.bottom) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                }, { passive: true });
+
+                // Clear visual press on touch-end if the finger ended outside the button
+                // (backup for touchmove; also handles fast swipe-off).
+                btnEl.addEventListener('touchend', (e) => {
+                    if (state.activeButtonId !== btn.id) return;
+                    const t = e.changedTouches[0];
+                    if (!t) return;
+                    const r = btnEl.getBoundingClientRect();
+                    if (t.clientX < r.left || t.clientX > r.right ||
+                        t.clientY < r.top  || t.clientY > r.bottom) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                });
 
                 btnEl.addEventListener('touchcancel', () => {
                     if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
                 });
 
-                // Primary activation handler — works for touch, mouse, and stylus.
+                // ── Click (release activation) ────────────────────────────────────────
+                // click fires after touchend (touch), mouseup (mouse), or Enter (keyboard).
+                // In press mode, touch/pointer already activated on down — skip the
+                // click to avoid double-firing. e.detail === 0 indicates a keyboard-
+                // triggered click, which should still activate in press mode.
                 btnEl.addEventListener('click', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
+                    if (state.activationMode === 'press' && e.detail > 0) return;
                     activateSwitch(btn.id);
                 });
 
-                // ── Pointer events: positioning mode drag only ────────────────────────
+                // ── Pointer events ────────────────────────────────────────────────────
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
                         e.stopPropagation();
@@ -1035,19 +1062,26 @@
                         // Visual press feedback for mouse / stylus (touch handled above).
                         state.activeButtonId = btn.id;
                         updateVisuals();
+                        // Press mode: activate immediately for mouse / stylus.
+                        if (state.activationMode === 'press' && state.touchTarget === 'button') {
+                            activateSwitch(btn.id);
+                        }
                     }
                 });
 
-                btnEl.addEventListener('pointercancel', () => {
-                    heldPointers.clear();
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                });
-
-                btnEl.addEventListener('pointercancel', (e) => {
-                    if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
+                // Clear visual press when the pointer leaves the button (mouse/stylus).
+                btnEl.addEventListener('pointerleave', (e) => {
+                    if (e.pointerType === 'touch') return; // Touch uses touchmove above.
+                    if (state.activeButtonId === btn.id && !state.isPositioningMode) {
                         state.activeButtonId = null;
                         updateVisuals();
                     }
+                });
+
+                btnEl.addEventListener('pointercancel', (e) => {
+                    heldPointers.delete(e.pointerId);
+                    heldPointers.size === 0 && heldPointers.clear();
+                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
                 });
 
                 rotatable.appendChild(btnEl);
@@ -1261,22 +1295,32 @@
             // NOTE: whole-screen activation is handled by the window click handler below.
         });
 
-        // Whole-screen touch target activation via click — iOS-safe for TTS.
+        // Press mode + screen target: activate immediately on touch-down.
+        window.addEventListener('touchstart', (e) => {
+            if (state.isPositioningMode || state.showSettings) return;
+            if (state.activationMode !== 'press') return;
+            if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                if (!e.target.closest('.app-button')) activateSwitch(state.buttons[0].id);
+            }
+        }, { passive: true });
+
+        // Whole-screen touch target activation via click.
+        // In press mode, touch/pointer already activated on down — skip to avoid
+        // double-firing (e.detail === 0 lets keyboard clicks through).
         window.addEventListener('click', (e) => {
             if (!state.isPositioningMode && !state.showSettings) {
                 if (state.buttons.length === 1 && state.touchTarget === 'screen') {
-                    // Ignore clicks that originated inside a button (already handled there).
-                    if (!e.target.closest('.app-button')) activateSwitch(state.buttons[0].id);
+                    if (!e.target.closest('.app-button')) {
+                        if (state.activationMode === 'press' && e.detail > 0) return;
+                        activateSwitch(state.buttons[0].id);
+                    }
                 }
             }
         });
         window.addEventListener('mouseup', () => {
             if (gesture.active) {
                 gesture.active = false;
-                saveState(); // Save on drop/end
-            }
-            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
-                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
+                saveState();
             }
         });
 
@@ -1326,8 +1370,14 @@
         })();
 
         // ─── BUTTON ACTIVATION ────────────────────────────────────────────────────
+        let _lastActivateTime = 0;
         function activateSwitch(btnId) {
             if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
+            // Collapse simultaneous multi-finger taps into a single activation.
+            // Each finger generates its own click event; ignore duplicates within 80 ms.
+            const now = Date.now();
+            if (now - _lastActivateTime < 80) return;
+            _lastActivateTime = now;
             if (state.debounceTime > 0) {
                 state.inDebounce = true;
                 if (debounceTimeoutId) clearTimeout(debounceTimeoutId);
