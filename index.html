@@ -1354,6 +1354,11 @@
             // If this slot has a recorded audio clip, play it — no TTS.
             // If the recording is deleted, the slot falls back to TTS automatically.
             if (btn.hasAudio?.[idx]) {
+                // Unlock the AudioContext NOW, synchronously while still inside the
+                // click gesture. _loadAndPlayAudio crosses an await boundary (IndexedDB)
+                // so iOS would revoke the gesture by the time source.start() is called
+                // without this synchronous unlock.
+                initAudioCtx();
                 _loadAndPlayAudio(btn, idx);
             } else {
                 tts.speak(phraseText, btnId);
