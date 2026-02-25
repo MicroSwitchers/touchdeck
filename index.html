@@ -141,7 +141,7 @@
                 inset 0  3px  6px rgba(255,255,255,0.28),
                 /* Dark bottom inner (adds cylinder depth) */
                 inset 0 -5px 14px rgba(0,0,0,0.30);
-            transition: box-shadow 0.08s ease;
+            transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.08s ease, border-bottom-width 0.08s ease;
         }
 
         /* ── Speaking border (simple, visible indicator) ───────────────────── */
@@ -1440,8 +1440,13 @@
                 visualStateTimeoutId = null;
             }
 
-            state.activeButtonId = btnId;
-            updateVisuals();
+            // Only update visuals if button isn't already pressed (avoid flicker from re-applying same state)
+            const wasAlreadyPressed = (state.activeButtonId === btnId);
+            if (!wasAlreadyPressed) {
+                state.activeButtonId = btnId;
+                updateVisuals();
+            }
+            
             // Set new timeout to clear visual state
             visualStateTimeoutId = setTimeout(() => {
                 if (state.activeButtonId === btnId) {
