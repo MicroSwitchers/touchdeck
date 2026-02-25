@@ -141,7 +141,7 @@
                 inset 0  3px  6px rgba(255,255,255,0.28),
                 /* Dark bottom inner (adds cylinder depth) */
                 inset 0 -5px 14px rgba(0,0,0,0.30);
-            transition: transform 0.08s ease, box-shadow 0.08s ease, filter 0.08s ease, border-bottom-width 0.08s ease;
+            transition: box-shadow 0.08s ease;
         }
 
         /* ── Speaking border (simple, visible indicator) ───────────────────── */
@@ -683,12 +683,6 @@
         // --- FUNCTIONS RESTORED ---
         function openSettings() {
             stopScan();
-            // Clear any stuck visual state
-            if (visualStateTimeoutId) {
-                clearTimeout(visualStateTimeoutId);
-                visualStateTimeoutId = null;
-            }
-            state.activeButtonId = null;
             // Stop any active audio before entering settings
             if (currentPlaybackSource) {
                 try { currentPlaybackSource.stop(); } catch(e) {}
@@ -1000,20 +994,6 @@
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
 
-                // ── Touch robustness state (per-button closure) ────────────────────────
-                // 'idle'      — no touch in progress
-                // 'valid'     — single clean touch being tracked
-                // 'cancelled' — touch was invalidated (multi-finger or brush); block click
-                let touchState      = 'idle';
-                let trackedTouchId  = null;
-                let touchOriginX    = 0;
-                let touchOriginY    = 0;
-                let touchStartTime  = 0;
-                let lastActivated   = 0;
-                const SLOP_PX       = 15;  // pixels of movement before a touch is treated as a brush
-                const MIN_TOUCH_MS  = 50;  // minimum touch duration to prevent accidental brushes
-                const COOLDOWN_MS   = 350; // ms before the same button can fire again (tremor guard)
-
                 // ── Activation via click ───────────────────────────────────────────────
                 // `click` is the only event that reliably grants iOS Safari permission
                 // to call speechSynthesis.speak(). It fires after: touchend (touch
@@ -1026,87 +1006,22 @@
                 // always originates from a click-class gesture.
 
                 btnEl.addEventListener('touchstart', (e) => {
+                    // Visual press feedback only — do NOT preventDefault here or click
+                    // will be suppressed on iOS and TTS will break.
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
-                    // CRITICAL: Check ALL touches on the screen (e.touches), not just on this button.
-                    // If there's more than one finger touching ANYWHERE, cancel.
-                    if (e.touches.length !== 1) {
-                        trackedTouchId = null;
-                        touchState = 'cancelled';
-                        if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                        return;
-                    }
-                    // Single clean touch detected — track it
-                    const t = e.targetTouches[0];
-                    trackedTouchId  = t.identifier;
-                    touchOriginX    = t.clientX;
-                    touchOriginY    = t.clientY;
-                    touchStartTime  = Date.now();
-                    touchState      = 'valid';
-                    // Show visual feedback during touch
                     state.activeButtonId = btn.id;
                     updateVisuals();
                 }, { passive: true });
 
-                btnEl.addEventListener('touchmove', (e) => {
-                    if (touchState !== 'valid') return;
-                    // Cancel if additional fingers touch down during the gesture
-                    if (e.touches.length !== 1) {
-                        trackedTouchId = null;
-                        touchState = 'cancelled';
-                        if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                        return;
-                    }
-                    const t = Array.from(e.changedTouches).find(ct => ct.identifier === trackedTouchId);
-                    if (!t) return;
-                    // Cancel if finger moves too much (likely a brush or swipe)
-                    if (Math.hypot(t.clientX - touchOriginX, t.clientY - touchOriginY) > SLOP_PX) {
-                        trackedTouchId = null;
-                        touchState = 'cancelled';
-                        if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                    }
-                }, { passive: true });
-
                 btnEl.addEventListener('touchcancel', () => {
-                    trackedTouchId = null;
-                    touchState = 'cancelled';
-                    touchStartTime = 0;
                     if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                });
-
-                btnEl.addEventListener('touchend', (e) => {
-                    // Don't clear visual state here - let activateSwitch handle it
-                    // If the touch that ended was our tracked touch, we're ready to activate (via click)
-                    if (touchState === 'valid') {
-                        const endedTouch = Array.from(e.changedTouches).find(ct => ct.identifier === trackedTouchId);
-                        if (endedTouch) {
-                            // Touch ended cleanly — click event will fire next and handle activation
-                            // Keep touchState as 'valid' so click handler accepts it
-                        }
-                    }
                 });
 
                 // Primary activation handler — works for touch, mouse, and stylus.
                 btnEl.addEventListener('click', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
-                    // If this was a touch that we cancelled (multi-finger or brush), ignore it.
-                    if (touchState === 'cancelled') { touchState = 'idle'; return; }
-                    // Enforce minimum touch duration to prevent accidental brushes
-                    if (touchStartTime > 0) {
-                        const touchDuration = Date.now() - touchStartTime;
-                        if (touchDuration < MIN_TOUCH_MS) {
-                            touchState = 'idle';
-                            touchStartTime = 0;
-                            return;
-                        }
-                    }
-                    touchState = 'idle';
-                    touchStartTime = 0;
-                    // Cooldown: prevent double-fire from tremor or accidental rapid taps.
-                    const now = Date.now();
-                    if (now - lastActivated < COOLDOWN_MS) return;
-                    lastActivated = now;
                     activateSwitch(btn.id);
                 });
 
@@ -1123,14 +1038,13 @@
                     }
                 });
 
-                btnEl.addEventListener('pointerup', (e) => {
-                    // Don't clear visual state here for non-touch - let activateSwitch handle it via click
-                    // (Touch is handled separately via touchend above)
+                btnEl.addEventListener('pointercancel', () => {
+                    heldPointers.clear();
+                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
                 });
 
                 btnEl.addEventListener('pointercancel', (e) => {
-                    heldPointers.delete(e.pointerId);
-                    if (state.activeButtonId === btn.id) {
+                    if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
                         state.activeButtonId = null;
                         updateVisuals();
                     }
@@ -1270,14 +1184,6 @@
 
         function togglePositioning(active) {
             state.isPositioningMode = active;
-            // Clear any stuck visual state when entering positioning mode
-            if (active) {
-                if (visualStateTimeoutId) {
-                    clearTimeout(visualStateTimeoutId);
-                    visualStateTimeoutId = null;
-                }
-                state.activeButtonId = null;
-            }
             const overlay = document.getElementById('positioning-overlay');
             const hdr = document.getElementById('header');
             const outputBar = document.getElementById('output-bar');
@@ -1434,35 +1340,9 @@
 
             if (state.hapticsEnabled && navigator.vibrate) try { navigator.vibrate(50); } catch(e) {}
 
-            // Clear any existing visual state timeout to prevent race conditions
-            if (visualStateTimeoutId) {
-                clearTimeout(visualStateTimeoutId);
-                visualStateTimeoutId = null;
-            }
-
-            // Only update visuals if button isn't already pressed (avoid flicker from re-applying same state)
-            const wasAlreadyPressed = (state.activeButtonId === btnId);
-            if (!wasAlreadyPressed) {
-                state.activeButtonId = btnId;
-                updateVisuals();
-            }
-            
-            // Set new timeout to clear visual state
-            visualStateTimeoutId = setTimeout(() => {
-                if (state.activeButtonId === btnId) {
-                    state.activeButtonId = null;
-                    updateVisuals();
-                }
-                visualStateTimeoutId = null;
-            }, 200);
-            
-            // Fail-safe: ensure button is never stuck for more than 1 second
-            setTimeout(() => {
-                if (state.activeButtonId === btnId) {
-                    state.activeButtonId = null;
-                    updateVisuals();
-                }
-            }, 1000);
+            state.activeButtonId = btnId;
+            updateVisuals();
+            setTimeout(() => { state.activeButtonId = null; updateVisuals(); }, 200);
 
             const btn = state.buttons.find(b => b.id === btnId);
             if (!btn) return;
@@ -2074,7 +1954,6 @@
         let scanTimer = null;
         let scanIdx = 0;
         let debounceTimeoutId = null;
-        let visualStateTimeoutId = null; // Tracks the timeout that clears visual pressed state
 
         function startScan() {
             stopScan();
