@@ -992,28 +992,24 @@
 
                 // Tracks which pointer IDs are currently held on this button
                 const heldPointers = new Set();
-                
-                // Track if button is in "pressed" state (for press vs release mode logic)
-                let isCurrentlyPressed = false;
-                let activatedInPressMode = false;
+                let pressActivated = false; // Track if already activated in press mode
 
                 // ── MOUSE/TOUCH HANDLERS ──────────────────────────────────────────────
-                // Visual feedback via pointer events
-                // Activation: touchstart for press mode (iOS compatible), click for release mode
+                // Press mode: touchstart for immediate activation (iOS compatible)
+                // Release mode: click for activation after release (iOS compatible)
+                // Visual feedback: pointer events for press/release state
 
-                // TOUCHSTART for iOS press mode TTS compatibility
+                // TOUCHSTART - for immediate press mode activation (iOS grants TTS permission)
                 btnEl.addEventListener('touchstart', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
                     
-                    // In PRESS mode, activate immediately on touch (iOS grants audio permission here)
+                    // In PRESS mode, activate immediately when touched
                     if (state.activationMode === 'press') {
-                        activatedInPressMode = true;
-                        state.activeButtonId = btn.id;
-                        updateVisuals();
-                        activateSwitch(btn.id, true); // Skip auto visual reset
+                        pressActivated = true;
+                        activateSwitch(btn.id);
                     }
-                }, { passive: true }); // passive: true allows click to still fire
+                }, { passive: true }); // passive allows click to still fire for audio context
 
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
@@ -1032,18 +1028,10 @@
 
                     heldPointers.add(e.pointerId);
                     
-                    // Visual press on first finger/pointer
+                    // Show visual press feedback on first finger/pointer
                     if (heldPointers.size === 1) {
-                        isCurrentlyPressed = true;
-                        if (state.activationMode === 'release' || e.pointerType === 'mouse') {
-                            state.activeButtonId = btn.id;
-                            updateVisuals();
-                        }
-                        
-                        // For mouse in press mode, activate now
-                        if (state.activationMode === 'press' && e.pointerType === 'mouse') {
-                            activateSwitch(btn.id, true);
-                        }
+                        state.activeButtonId = btn.id;
+                        updateVisuals();
                     }
                 });
 
@@ -1058,23 +1046,16 @@
 
                     heldPointers.delete(e.pointerId);
                     
-                    // Clear visual press when last finger lifts
+                    // Reset press activation flag when all pointers are up
                     if (heldPointers.size === 0) {
-                        isCurrentlyPressed = false;
-                        if (state.activeButtonId === btn.id) {
-                            state.activeButtonId = null;
-                            updateVisuals();
-                        }
-                        // Reset flag after short delay
-                        setTimeout(() => { activatedInPressMode = false; }, 100);
+                        setTimeout(() => { pressActivated = false; }, 100);
                     }
                 });
 
                 btnEl.addEventListener('pointercancel', (e) => {
                     heldPointers.delete(e.pointerId);
                     if (heldPointers.size === 0) {
-                        isCurrentlyPressed = false;
-                        activatedInPressMode = false;
+                        pressActivated = false;
                         if (state.activeButtonId === btn.id) {
                             state.activeButtonId = null;
                             updateVisuals();
@@ -1082,7 +1063,7 @@
                     }
                 });
 
-                // CLICK event - for release mode and preventing double-activation in press mode
+                // CLICK event - for release mode and preventing double-fire in press mode
                 btnEl.addEventListener('click', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
@@ -1091,10 +1072,9 @@
                     if (state.activationMode === 'release') {
                         activateSwitch(btn.id);
                     }
-                    // PRESS mode: don't activate if we already did via touchstart
-                    // (prevents double-activation from touchstart + click on iOS)
-                    else if (state.activationMode === 'press' && !activatedInPressMode) {
-                        // Keyboard or other input methods that didn't trigger touchstart
+                    // PRESS mode: only activate if NOT already activated by touchstart
+                    // (this handles mouse clicks and keyboard activation)
+                    else if (state.activationMode === 'press' && !pressActivated) {
                         activateSwitch(btn.id);
                     }
                 });
@@ -1376,7 +1356,7 @@
         })();
 
         // ─── BUTTON ACTIVATION ────────────────────────────────────────────────────
-        function activateSwitch(btnId, skipVisualReset = false) {
+        function activateSwitch(btnId) {
             if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
             if (state.debounceTime > 0) {
                 state.inDebounce = true;
@@ -1392,16 +1372,12 @@
 
             state.activeButtonId = btnId;
             updateVisuals();
-            
-            // Only auto-reset visuals if this wasn't a manual hold
-            if (!skipVisualReset) {
-                setTimeout(() => { 
-                    if (state.activeButtonId === btnId) {
-                        state.activeButtonId = null; 
-                        updateVisuals(); 
-                    }
-                }, 200);
-            }
+            setTimeout(() => { 
+                if (state.activeButtonId === btnId) {
+                    state.activeButtonId = null; 
+                    updateVisuals(); 
+                }
+            }, 200);
 
             const btn = state.buttons.find(b => b.id === btnId);
             if (!btn) return;
