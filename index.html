@@ -1351,12 +1351,13 @@
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
-            // Speak phrase via TTS. If the button also has a recording, _loadAndPlayAudio
-            // will cancel TTS and play the real audio once the blob is fetched.
-            tts.speak(phraseText, btnId);
-
-            // Kick off async audio loading if a recording exists.
-            if (btn.hasAudio?.[idx]) _loadAndPlayAudio(btn, idx);
+            // If this slot has a recorded audio clip, play it — no TTS.
+            // If the recording is deleted, the slot falls back to TTS automatically.
+            if (btn.hasAudio?.[idx]) {
+                _loadAndPlayAudio(btn, idx);
+            } else {
+                tts.speak(phraseText, btnId);
+            }
 
             // Phrase cycling.
             const valid = btn.phrases.filter((p, i) => (p && p.trim()) || btn.hasAudio?.[i]);
@@ -1369,11 +1370,9 @@
         }
 
         // Loads the recorded blob and plays it via AudioContext (iOS-safe, no gesture required).
-        // Cancels any TTS that started while the blob was being fetched.
         async function _loadAndPlayAudio(btn, idx) {
             const blob = await getAudioBlob(`${btn.id}_${idx}`);
             if (!blob) return;
-            tts.cancel(); // swap out TTS for the real recording
             state.isSpeaking = true;
             state.playingButtonId = btn.id;
             updateVisuals();
