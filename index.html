@@ -368,11 +368,12 @@
         const state = {
             buttons: [],
             labelPos: 'on',
+            voices: [],
             selectedVoiceURI: '',
             hapticsEnabled: true,
             audioCueEnabled: true,
             activationMode: 'press',
-            touchTarget: 'button', 
+            touchTarget: 'button',
             orientationMode: 'auto',
             debounceTime: 0,
             showSettings: false,
@@ -380,9 +381,8 @@
             isPositioningMode: false,
             isSpeaking: false,
             activeButtonId: null,
-            playingButtonId: null, 
+            playingButtonId: null,
             editingBtnId: null,
-            voices: [],
             inDebounce: false,
             mediaRecorder: null,
             isRecording: false,
@@ -390,7 +390,6 @@
             scanInterval: 2.0,
             scanColor: 'Yellow',
             scanTick: false,
-            scanAnnounce: false,
             scanClearDebounce: false,
             outputBarPos: { x: 50, y: 92 },
             outputBarScale: 1.0,
@@ -609,7 +608,7 @@
                 
                 // Config State
                 state.labelPos = safeGetItem('t2w_label_pos') || 'on';
-                state.selectedVoiceURI = safeGetItem('t2w_voice') || "";
+                state.selectedVoiceURI = safeGetItem('t2w_voice') || '';
                 state.hapticsEnabled = safeGetItem('t2w_haptics') !== 'false';
                 state.audioCueEnabled = safeGetItem('t2w_audio') !== 'false';
                 state.activationMode = safeGetItem('t2w_mode') || 'press';
@@ -623,7 +622,6 @@
                 state.scanInterval = Number(safeGetItem('t2w_scan_interval')) || 2.0;
                 state.scanColor = safeGetItem('t2w_scan_color') || 'Yellow';
                 state.scanTick = safeGetItem('t2w_scan_tick') === 'true';
-                state.scanAnnounce = safeGetItem('t2w_scan_announce') === 'true';
                 state.scanClearDebounce = safeGetItem('t2w_scan_clear_debounce') === 'true';
                 
                 const savedOutputBarPos = safeGetItem('t2w_output_bar_pos');
@@ -667,7 +665,6 @@
             safeSetItem('t2w_scan_interval', state.scanInterval);
             safeSetItem('t2w_scan_color', state.scanColor);
             safeSetItem('t2w_scan_tick', state.scanTick);
-            safeSetItem('t2w_scan_announce', state.scanAnnounce);
             safeSetItem('t2w_scan_clear_debounce', state.scanClearDebounce);
             safeSetItem('t2w_output_bar_pos', JSON.stringify(state.outputBarPos));
             safeSetItem('t2w_output_bar_scale', state.outputBarScale);
@@ -687,7 +684,6 @@
                 try { currentPlaybackSource.stop(); } catch(e) {}
                 currentPlaybackSource = null;
             }
-            tts.cancel();
             state.isSpeaking = false;
             state.playingButtonId = null;
             state.showSettings = true;
@@ -741,23 +737,23 @@
             loadState();
             
             if (window.lucide) window.lucide.createIcons();
-            
-            if(window.speechSynthesis) {
-                const loadVoices = () => {
-                    state.voices = window.speechSynthesis.getVoices();
-                    if (!state.selectedVoiceURI && state.voices.length) state.selectedVoiceURI = state.voices[0].voiceURI;
-                };
-                window.speechSynthesis.onvoiceschanged = loadVoices;
-                loadVoices();
-                // iOS requires a small delay to ensure voices are loaded
-                setTimeout(loadVoices, 100);
 
-                // iOS: on first touch anywhere, prime the speech engine.
-                // Some iOS versions start the engine in a suspended state and
-                // need resume() called from a user gesture before speak() will work.
-                document.addEventListener('touchstart', function primeSpeech() {
-                    tts.prime();
-                }, { once: true, passive: true });
+            // Load TTS voices — mirrors the reference iOS TTS pattern exactly.
+            // onvoiceschanged fires asynchronously on Chrome/Android; on iOS the
+            // voices are often available synchronously via getVoices().
+            if (window.speechSynthesis) {
+                function populateVoices() {
+                    state.voices = window.speechSynthesis.getVoices();
+                    if (!state.selectedVoiceURI && state.voices.length) {
+                        // Prefer Samantha (standard iOS voice) then the platform default.
+                        const preferred = state.voices.find(v => v.name.includes('Samantha'))
+                            || state.voices.find(v => v.default)
+                            || state.voices[0];
+                        state.selectedVoiceURI = preferred.voiceURI;
+                    }
+                }
+                window.speechSynthesis.onvoiceschanged = populateVoices;
+                populateVoices();
             }
 
             renderButtons();
@@ -861,7 +857,15 @@
             };
             
             // Scan overlay — any tap/click activates the currently highlighted button
+            // Scan overlay — touch: use touchend for iOS TTS; mouse: use pointerdown
+            document.getElementById('scan-overlay').addEventListener('touchend', (e) => {
+                if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
+                e.preventDefault();
+                const btn = state.buttons[scanIdx];
+                if (btn) activateSwitch(btn.id);
+            }, { passive: false });
             document.getElementById('scan-overlay').addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'touch') return; // handled by touchend above
                 if (state.activationMode !== 'scan' || state.showSettings || state.isPositioningMode) return;
                 e.preventDefault();
                 const btn = state.buttons[scanIdx];
@@ -954,6 +958,7 @@
                 btnEl.className = `app-button relative w-64 h-64 md:w-80 md:h-80 rounded-full ${btn.color.shadow} transition-all duration-100 transform flex items-center justify-center overflow-hidden outline-none cursor-pointer select-none`;
                 btnEl.style.borderBottomWidth = '20px';
                 btnEl.style.background = GRADIENTS[btn.color.name] || '';
+                btnEl.style.touchAction = 'manipulation'; // fast click on iOS, no 300 ms delay
                 btnEl.dataset.id = btn.id;
 
                 btnEl.innerHTML = `
@@ -985,59 +990,55 @@
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
 
+                // ── Activation via click ───────────────────────────────────────────────
+                // `click` is the only event that reliably grants iOS Safari permission
+                // to call speechSynthesis.speak(). It fires after: touchend (touch
+                // devices), mouseup (mouse), or Enter (keyboard). We do NOT call
+                // e.preventDefault() on touchstart so the browser still generates the
+                // click event. Instead, touch-action:manipulation on the element CSS
+                // eliminates the 300 ms double-tap delay without JS intervention.
+                //
+                // All activation modes (press / release / screen) use click so TTS
+                // always originates from a click-class gesture.
+
+                btnEl.addEventListener('touchstart', (e) => {
+                    // Visual press feedback only — do NOT preventDefault here or click
+                    // will be suppressed on iOS and TTS will break.
+                    if (state.isPositioningMode || state.showSettings) return;
+                    if (state.touchTarget !== 'button') return;
+                    state.activeButtonId = btn.id;
+                    updateVisuals();
+                }, { passive: true });
+
+                btnEl.addEventListener('touchcancel', () => {
+                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                });
+
+                // Primary activation handler — works for touch, mouse, and stylus.
+                btnEl.addEventListener('click', (e) => {
+                    if (state.isPositioningMode || state.showSettings) return;
+                    if (state.touchTarget !== 'button') return;
+                    activateSwitch(btn.id);
+                });
+
+                // ── Pointer events: positioning mode drag only ────────────────────────
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
                         e.stopPropagation();
                         if (e.pointerType !== 'mouse') e.preventDefault();
                         initGesture(e, btn.id);
-                    } else if (state.activationMode === 'press') {
-                        e.stopPropagation();
-                        if (e.pointerType === 'touch') e.preventDefault();
-                        activateSwitch(btn.id);
-                    } else if (state.activationMode === 'release' && !state.showSettings && state.touchTarget === 'button') {
-                        // Depress the button visually immediately on touch-down.
-                        // setPointerCapture keeps pointermove firing on this element even
-                        // after the pointer leaves it — without it, mouse pointermove stops
-                        // at the element edge and the button never pops back up on drag-off.
-                        e.stopPropagation();
-                        if (e.pointerType === 'touch') e.preventDefault();
-                        btnEl.setPointerCapture(e.pointerId);
-                        heldPointers.add(e.pointerId);
+                    } else if (!state.showSettings && e.pointerType !== 'touch') {
+                        // Visual press feedback for mouse / stylus (touch handled above).
                         state.activeButtonId = btn.id;
                         updateVisuals();
                     }
                 });
 
-                // If the finger slides off the button area, pop up and activate (like a real button release)
-                btnEl.addEventListener('pointermove', (e) => {
-                    if (!heldPointers.has(e.pointerId)) return;
-                    const rect = btnEl.getBoundingClientRect();
-                    const outside = Math.hypot(
-                        e.clientX - (rect.left + rect.width / 2),
-                        e.clientY - (rect.top + rect.height / 2)
-                    ) > rect.width / 2;
-                    if (outside) {
-                        // Slide off: pop up visually and activate immediately
-                        heldPointers.delete(e.pointerId);
-                        if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                        activateSwitch(btn.id);
-                    }
+                btnEl.addEventListener('pointercancel', () => {
+                    heldPointers.clear();
+                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
                 });
 
-                // Release mode: activate when finger lifts if still on button
-                btnEl.addEventListener('pointerup', (e) => {
-                    if (!state.isPositioningMode && !state.showSettings && state.activationMode === 'release' && state.touchTarget === 'button') {
-                        e.stopPropagation();
-                        if (heldPointers.delete(e.pointerId)) {
-                            // Finger lifted while still over button — activate
-                            if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                            activateSwitch(btn.id);
-                        }
-                        // If already slid off, it was already activated in pointermove
-                    }
-                });
-
-                // System cancelled the gesture (palm rejection, notification, etc.)
                 btnEl.addEventListener('pointercancel', (e) => {
                     if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
                         state.activeButtonId = null;
@@ -1253,9 +1254,16 @@
                 gesture.active = false;
                 saveState();
             }
-            // Release mode on touch for whole-screen target
-            if (state.activationMode === 'release' && !state.isPositioningMode && !state.showSettings) {
-                if (state.buttons.length === 1 && state.touchTarget === 'screen') activateSwitch(state.buttons[0].id);
+            // NOTE: whole-screen activation is handled by the window click handler below.
+        });
+
+        // Whole-screen touch target activation via click — iOS-safe for TTS.
+        window.addEventListener('click', (e) => {
+            if (!state.isPositioningMode && !state.showSettings) {
+                if (state.buttons.length === 1 && state.touchTarget === 'screen') {
+                    // Ignore clicks that originated inside a button (already handled there).
+                    if (!e.target.closest('.app-button')) activateSwitch(state.buttons[0].id);
+                }
             }
         });
         window.addEventListener('mouseup', () => {
@@ -1268,57 +1276,45 @@
             }
         });
 
-        // ─── TTS ENGINE ───────────────────────────────────────────────────────────
-        // iOS Safari requires speechSynthesis.speak() to be on the SYNCHRONOUS
-        // call-stack of a user-gesture event (pointerdown / pointerup / touchend).
-        // It cannot be called from inside an async function frame, a Promise
-        // callback, a setTimeout, or any other async boundary — even if no await
-        // has been hit yet — because iOS tracks gesture activation at the C++ level
-        // and does not propagate it through async continuations.
-        //
-        // activateSwitch() is therefore a plain synchronous function that calls
-        // tts.speak() directly. Audio loading (IndexedDB) is handled separately in
-        // _loadAndPlayAudio() which runs after the synchronous path completes.
+        // ─── TTS ENGINE (reference iOS pattern) ──────────────────────────────────
+        // Activation MUST come from a `click` event — iOS Safari grants
+        // speechSynthesis user-activation from click (and keyboard Enter) but
+        // NOT reliably from touchend or pointerdown alone.
         const tts = (() => {
-            let _u = null;
+            const synth = window.speechSynthesis;
 
             function speak(text, btnId) {
-                const synth = window.speechSynthesis;
                 if (!synth || !text) return;
-                // Cancel only if already active. Unconditional cancel() leaves the
-                // engine in a mid-reset state where the next speak() is dropped.
-                if (synth.speaking || synth.pending) synth.cancel();
-                // Re-activate engine — iOS suspends it after backgrounding / cold start.
-                synth.resume();
+                // Don't cut off speech that is already in progress.
+                if (synth.speaking) return;
+                // iOS workaround: resume if the engine was paused (background/cold-start).
+                if (synth.paused) synth.resume();
+
                 const u = new SpeechSynthesisUtterance(text);
-                u.rate = 0.9;
-                if (state.voices.length === 0) state.voices = synth.getVoices();
-                if (state.voices.length > 0) {
-                    const v = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
-                    if (v) u.voice = v;
-                }
-                _u = u;
-                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btnId; updateVisuals(); };
-                u.onend   = () => { if (_u === u) { _u = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); } };
-                u.onerror = ev => { console.warn('TTS error:', ev.error); if (_u === u) { _u = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); } };
+                // iOS handles pitch 1.0 and rate 1.0 most reliably.
+                u.pitch = 1.0;
+                u.rate  = 1.0;
+
+                // Resolve the saved voice (voices may have loaded after state was set).
+                if (!state.voices.length) state.voices = synth.getVoices();
+                const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                if (voice) u.voice = voice;
+
+                u.onstart = () => { state.isSpeaking = true;  state.playingButtonId = btnId; updateVisuals(); };
+                u.onend   = () => { state.isSpeaking = false; state.playingButtonId = null;  updateVisuals(); };
+                u.onerror = (ev) => { console.warn('TTS:', ev.error); state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
+
                 synth.speak(u);
             }
 
             function cancel() {
-                const synth = window.speechSynthesis;
                 if (synth?.speaking || synth?.pending) synth.cancel();
-                _u = null;
             }
 
-            // Call from the first touchstart to wake the engine before first speak().
-            function prime() {
-                if (window.speechSynthesis) window.speechSynthesis.resume();
-            }
-
-            return { speak, cancel, prime };
+            return { speak, cancel };
         })();
 
-        // ─── BUTTON ACTIVATION (synchronous) ──────────────────────────────────────
+        // ─── BUTTON ACTIVATION ────────────────────────────────────────────────────
         function activateSwitch(btnId) {
             if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
             if (state.debounceTime > 0) {
@@ -1345,11 +1341,11 @@
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
-            // Speak synchronously — still on the gesture call-stack.
-            // If a recorded audio blob loads below, tts.cancel() swaps it out.
+            // Speak phrase via TTS. If the button also has a recording, _loadAndPlayAudio
+            // will cancel TTS and play the real audio once the blob is fetched.
             tts.speak(phraseText, btnId);
 
-            // Kick off async audio loading without blocking the synchronous path.
+            // Kick off async audio loading if a recording exists.
             if (btn.hasAudio?.[idx]) _loadAndPlayAudio(btn, idx);
 
             // Phrase cycling.
@@ -1362,12 +1358,12 @@
             }
         }
 
-        // Async counterpart: loads the recorded blob and, if found, cancels TTS and
-        // plays the real recording via AudioContext (iOS-safe, no gesture required).
+        // Loads the recorded blob and plays it via AudioContext (iOS-safe, no gesture required).
+        // Cancels any TTS that started while the blob was being fetched.
         async function _loadAndPlayAudio(btn, idx) {
             const blob = await getAudioBlob(`${btn.id}_${idx}`);
-            if (!blob) return; // Blob missing — TTS is already playing as fallback.
-            tts.cancel();
+            if (!blob) return;
+            tts.cancel(); // swap out TTS for the real recording
             state.isSpeaking = true;
             state.playingButtonId = btn.id;
             updateVisuals();
@@ -1689,13 +1685,6 @@
                             </div>
                             <div class="flex items-center justify-between" style="${sliderCard}">
                                 <div>
-                                    <span class="text-[10px] uppercase font-bold text-zinc-400 block">Speak Label</span>
-                                    <span class="text-[9px] text-zinc-500">Announce button name while scanning</span>
-                                </div>
-                                <button id="sys-scan-announce" class="px-4 py-2 rounded-xl border text-xs font-bold uppercase transition-all ${state.scanAnnounce?activeToggle:inactiveToggle}" style="background:${state.scanAnnounce?activeToggleBg:inactiveToggleBg}">${state.scanAnnounce?'On':'Off'}</button>
-                            </div>
-                            <div class="flex items-center justify-between" style="${sliderCard}">
-                                <div>
                                     <span class="text-[10px] uppercase font-bold text-zinc-400 block">Clear Cooldown on Advance</span>
                                     <span class="text-[9px] text-zinc-500">Resets activation cooldown when scanner moves</span>
                                 </div>
@@ -1733,7 +1722,7 @@
                         <label class="text-xs font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2 mb-1">
                             <i data-lucide="volume-2" class="w-3 h-3"></i> Recorded Voice Volume
                         </label>
-                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Boosts the volume of your microphone recordings (does not affect TTS robot voices).</p>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Boosts the volume of your microphone recordings.</p>
                         <div style="${sliderCard}">
                             <div class="flex justify-between mb-3">
                                 <span class="text-[10px] uppercase font-bold text-zinc-400">Playback Boost</span>
@@ -1751,7 +1740,7 @@
                         <label class="text-xs font-bold text-violet-400 uppercase tracking-widest flex items-center gap-2 mb-1">
                             <i data-lucide="mic-2" class="w-3 h-3"></i> TTS Voice
                         </label>
-                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Robot voice used when phrases have no audio recording.</p>
+                        <p class="text-[10px] text-zinc-500 mb-3 leading-relaxed">Robot voice used when a button has no audio recording.</p>
                         <select id="sys-voice" class="w-full p-3 rounded-xl text-white text-sm outline-none cursor-pointer transition-all" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.10)" onfocus="this.style.borderColor='#a78bfa'" onblur="this.style.borderColor='rgba(255,255,255,0.10)'">${voiceOptions}</select>
                     </div>
 
@@ -1842,13 +1831,6 @@
                          saveState();
                      };
                  }
-                 if (sys.querySelector('#sys-scan-announce')) {
-                     sys.querySelector('#sys-scan-announce').onclick = () => {
-                         state.scanAnnounce = !state.scanAnnounce;
-                         renderSettingsContent();
-                         saveState();
-                     };
-                 }
                  if (sys.querySelector('#sys-scan-clear-debounce')) {
                      sys.querySelector('#sys-scan-clear-debounce').onclick = () => {
                          state.scanClearDebounce = !state.scanClearDebounce;
@@ -1871,7 +1853,7 @@
                      saveState();
                  };
                  if (sys.querySelector('#sys-voice')) {
-                     sys.querySelector('#sys-voice').onchange=(e)=>{state.selectedVoiceURI=e.target.value; saveState();};
+                     sys.querySelector('#sys-voice').onchange = (e) => { state.selectedVoiceURI = e.target.value; saveState(); };
                  }
                  sys.querySelector('#lbl-on').onclick=()=>{state.labelPos='on'; renderSettingsContent(); saveState(); renderButtons();}
                  sys.querySelector('#lbl-under').onclick=()=>{state.labelPos='under'; renderSettingsContent(); saveState(); renderButtons();}
@@ -1986,30 +1968,6 @@
                 if (active) {
                     b.style.setProperty('--scan-color', color.ring);
                     b.style.setProperty('--scan-glow',  color.glow);
-                    // Announce button label if enabled
-                    if (state.scanAnnounce && window.speechSynthesis) {
-                        const btn = state.buttons[scanIdx];
-                        const labelText = (btn?.label || '').trim();
-                        if (labelText) {
-                            // iOS fix: Ensure voices are loaded
-                            if (state.voices.length === 0) {
-                                state.voices = window.speechSynthesis.getVoices();
-                            }
-                            
-                            const utterance = new SpeechSynthesisUtterance(labelText);
-                            
-                            // iOS fix: Only set voice if available
-                            if (state.voices.length > 0) {
-                                const voice = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
-                                if (voice) utterance.voice = voice;
-                            }
-                            
-                            utterance.rate = 1.1; // Slightly faster for quick scanning
-                            utterance.volume = 0.8;
-                            
-                            window.speechSynthesis.speak(utterance);
-                        }
-                    }
                 } else {
                     b.style.removeProperty('--scan-color');
                     b.style.removeProperty('--scan-glow');
