@@ -2,7 +2,7 @@ TouchTab (Tap to Words)
 
 
 
-TouchTab is a lightweight, customizable, and privacy-focused Augmentative and Alternative Communication (AAC) web application designed specifically for tablets.
+TouchTab is a lightweight, customizable talking button app for touch screen devices.
 
 
 
@@ -98,7 +98,7 @@ Method 1: Host it (Recommended)
 
 
 
-Upload the index.html file to any static hosting service (GitHub Pages, Netlify, Vercel).
+Upload the index.html file to any static hosting service.
 
 
 
@@ -143,14 +143,6 @@ Icons: Lucide Icons (via CDN).
 
 
 Storage: localStorage (JSON config) + IndexedDB (Binary Audio Data).
-
-
-
-🤝 Contributing
-
-
-
-This is a single-file project to ensure maximum portability. Pull requests are welcome! If you want to add features, please ensure they can run entirely within the browser without external dependencies or compilation steps.
 
 
 

@@ -1,7 +1,7 @@
 {
-    "name": "TouchTab – Tap to Words",
-    "short_name": "TouchTab",
-    "description": "A privacy-first Augmentative and Alternative Communication (AAC) app. Tap large buttons to speak words and phrases. Works fully offline.",
+    "name": "Touch Deck",
+    "short_name": "Touch Deck",
+    "description": "Tap large buttons to speak words and phrases",
     "start_url": "./",
     "scope": "./",
     "id": "touchtab-aac-v1",
