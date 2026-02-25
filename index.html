@@ -687,7 +687,7 @@
                 try { currentPlaybackSource.stop(); } catch(e) {}
                 currentPlaybackSource = null;
             }
-            if (window.speechSynthesis) window.speechSynthesis.cancel();
+            tts.cancel();
             state.isSpeaking = false;
             state.playingButtonId = null;
             state.showSettings = true;
@@ -756,7 +756,7 @@
                 // Some iOS versions start the engine in a suspended state and
                 // need resume() called from a user gesture before speak() will work.
                 document.addEventListener('touchstart', function primeSpeech() {
-                    window.speechSynthesis.resume();
+                    tts.prime();
                 }, { once: true, passive: true });
             }
 
@@ -1268,7 +1268,58 @@
             }
         });
 
-        async function activateSwitch(btnId) {
+        // ─── TTS ENGINE ───────────────────────────────────────────────────────────
+        // iOS Safari requires speechSynthesis.speak() to be on the SYNCHRONOUS
+        // call-stack of a user-gesture event (pointerdown / pointerup / touchend).
+        // It cannot be called from inside an async function frame, a Promise
+        // callback, a setTimeout, or any other async boundary — even if no await
+        // has been hit yet — because iOS tracks gesture activation at the C++ level
+        // and does not propagate it through async continuations.
+        //
+        // activateSwitch() is therefore a plain synchronous function that calls
+        // tts.speak() directly. Audio loading (IndexedDB) is handled separately in
+        // _loadAndPlayAudio() which runs after the synchronous path completes.
+        const tts = (() => {
+            let _u = null;
+
+            function speak(text, btnId) {
+                const synth = window.speechSynthesis;
+                if (!synth || !text) return;
+                // Cancel only if already active. Unconditional cancel() leaves the
+                // engine in a mid-reset state where the next speak() is dropped.
+                if (synth.speaking || synth.pending) synth.cancel();
+                // Re-activate engine — iOS suspends it after backgrounding / cold start.
+                synth.resume();
+                const u = new SpeechSynthesisUtterance(text);
+                u.rate = 0.9;
+                if (state.voices.length === 0) state.voices = synth.getVoices();
+                if (state.voices.length > 0) {
+                    const v = state.voices.find(v => v.voiceURI === state.selectedVoiceURI);
+                    if (v) u.voice = v;
+                }
+                _u = u;
+                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btnId; updateVisuals(); };
+                u.onend   = () => { if (_u === u) { _u = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); } };
+                u.onerror = ev => { console.warn('TTS error:', ev.error); if (_u === u) { _u = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); } };
+                synth.speak(u);
+            }
+
+            function cancel() {
+                const synth = window.speechSynthesis;
+                if (synth?.speaking || synth?.pending) synth.cancel();
+                _u = null;
+            }
+
+            // Call from the first touchstart to wake the engine before first speak().
+            function prime() {
+                if (window.speechSynthesis) window.speechSynthesis.resume();
+            }
+
+            return { speak, cancel, prime };
+        })();
+
+        // ─── BUTTON ACTIVATION (synchronous) ──────────────────────────────────────
+        function activateSwitch(btnId) {
             if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
             if (state.debounceTime > 0) {
                 state.inDebounce = true;
@@ -1280,7 +1331,7 @@
                 }, state.debounceTime * 1000);
             }
 
-            if (state.hapticsEnabled && navigator.vibrate) try{ navigator.vibrate(50); }catch(e){}
+            if (state.hapticsEnabled && navigator.vibrate) try { navigator.vibrate(50); } catch(e) {}
 
             state.activeButtonId = btnId;
             updateVisuals();
@@ -1290,135 +1341,40 @@
             if (!btn) return;
 
             const idx = btn.phraseIndex;
-            const audioKey = `${btn.id}_${idx}`;
-            // Capture the phrase text NOW before phraseIndex advances, so error
-            // callbacks can still fall back to the correct phrase.
             const phraseText = (btn.phrases[idx] || '').trim();
             const displayText = phraseText || btn.label || '';
             if (displayText) showOutputBar(displayText);
 
-            // iOS TTS FIX: speechSynthesis.speak() MUST be called synchronously inside
-            // the user-gesture handler. Any await severs iOS's gesture-trust chain and
-            // speak() is silently blocked afterward — even with a 0 ms setTimeout.
-            //
-            // Strategy: always queue the utterance HERE (synchronously, before any
-            // IndexedDB await). If recorded audio then loads, cancel() it immediately
-            // and play the blob instead. If audio is absent or fails to load, the
-            // utterance is already queued and plays normally as the fallback.
-            let pendingUtterance = null;
-            if (window.speechSynthesis && phraseText) {
-                // Only cancel if something is already queued/speaking.
-                // Unconditional cancel() leaves the iOS engine in a mid-reset state
-                // where the immediately following speak() is silently dropped.
-                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-                    window.speechSynthesis.cancel();
-                }
-                // iOS suspends the engine after the page is backgrounded or on cold
-                // start — resume() re-activates it before we speak.
-                window.speechSynthesis.resume();
-                const u = new SpeechSynthesisUtterance(phraseText);
-                u.rate = 0.9;
-                if (state.voices.length === 0) state.voices = window.speechSynthesis.getVoices();
-                if (state.voices.length > 0) {
-                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
-                    if (v) u.voice = v;
-                }
-                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btn.id; updateVisuals(); };
-                u.onend = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
-                u.onerror = (e) => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); console.warn('TTS error:', e.error); };
-                window.speechSynthesis.speak(u);
-                pendingUtterance = u;
-            }
+            // Speak synchronously — still on the gesture call-stack.
+            // If a recorded audio blob loads below, tts.cancel() swaps it out.
+            tts.speak(phraseText, btnId);
 
-            let played = false;
-            if (btn.hasAudio && btn.hasAudio[idx]) {
-                const blob = await getAudioBlob(audioKey);
-                if (blob) {
-                    // Audio loaded — cancel the speculative TTS and play the recording.
-                    if (pendingUtterance) { window.speechSynthesis.cancel(); pendingUtterance = null; }
-                    played = true;
-                    state.isSpeaking = true;
-                    state.playingButtonId = btn.id;
-                    updateVisuals();
-                    // Use AudioContext playback (iOS-safe) instead of HTMLAudioElement.
-                    // Awaiting here only waits for decode+start (not full playback), so
-                    // phraseIndex cycling below still happens immediately after audio begins.
-                    currentPlaybackSource = await createAndPlayAudio(blob, {
-                        onEnded: () => {
-                            currentPlaybackSource = null;
-                            state.isSpeaking = false;
-                            state.playingButtonId = null;
-                            updateVisuals();
-                        },
-                        onError: () => {
-                            currentPlaybackSource = null;
-                            state.isSpeaking = false;
-                            state.playingButtonId = null;
-                            updateVisuals();
-                        }
-                    });
-                }
-                // If blob is null, pendingUtterance is already speaking — nothing more to do.
-            }
+            // Kick off async audio loading without blocking the synchronous path.
+            if (btn.hasAudio?.[idx]) _loadAndPlayAudio(btn, idx);
 
-            if (!played && !pendingUtterance) {
-                // No audio and no phrase text — ensure speaking state is cleared.
-                state.isSpeaking = false;
-                state.playingButtonId = null;
-                updateVisuals();
-            }
-
-            const valid = btn.phrases.filter((p, i) => (p && p.trim()) || (btn.hasAudio && btn.hasAudio[i]));
+            // Phrase cycling.
+            const valid = btn.phrases.filter((p, i) => (p && p.trim()) || btn.hasAudio?.[i]);
             if (valid.length > 1) {
-                let next = (idx + 1) % 3;
-                let s = 0;
-                while((!btn.phrases[next] || !btn.phrases[next].trim()) && (!btn.hasAudio || !btn.hasAudio[next]) && s<5) {
-                    next = (next+1)%3; s++;
-                }
+                let next = (idx + 1) % 3, s = 0;
+                while ((!btn.phrases[next]?.trim()) && !btn.hasAudio?.[next] && s++ < 5) next = (next + 1) % 3;
                 btn.phraseIndex = next;
                 saveState();
             }
         }
 
-        // txt is pre-captured so we always speak the right phrase even if phraseIndex
-        // has already advanced by the time an audio error fires asynchronously.
-        function fallbackSpeak(btn, txt) {
-            if (txt === undefined) txt = (btn.phrases[btn.phraseIndex] || btn.phrases.find(p => p) || '').trim();
-            if (!txt) {
-                // Nothing to speak — ensure speaking indicators are cleared
-                state.isSpeaking = false;
-                state.playingButtonId = null;
-                updateVisuals();
-                return;
-            }
-            if (window.speechSynthesis) {
-                // iOS fix: Ensure voices are loaded
-                if (state.voices.length === 0) {
-                    state.voices = window.speechSynthesis.getVoices();
-                    if (state.voices.length > 0 && !state.selectedVoiceURI) {
-                        state.selectedVoiceURI = state.voices[0].voiceURI;
-                    }
-                }
-                
-                if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-                    window.speechSynthesis.cancel();
-                }
-                window.speechSynthesis.resume();
-                const u = new SpeechSynthesisUtterance(txt);
-                if (state.voices.length > 0) {
-                    const v = state.voices.find(vo => vo.voiceURI === state.selectedVoiceURI);
-                    if (v) u.voice = v;
-                }
-                u.rate = 0.9;
-                u.onstart = () => { state.isSpeaking = true; state.playingButtonId = btn.id; updateVisuals(); };
-                u.onend = () => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); };
-                u.onerror = (e) => { state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); console.warn('TTS error:', e.error); };
-                window.speechSynthesis.speak(u);
-            } else {
-                state.isSpeaking = false;
-                state.playingButtonId = null;
-                updateVisuals();
-            }
+        // Async counterpart: loads the recorded blob and, if found, cancels TTS and
+        // plays the real recording via AudioContext (iOS-safe, no gesture required).
+        async function _loadAndPlayAudio(btn, idx) {
+            const blob = await getAudioBlob(`${btn.id}_${idx}`);
+            if (!blob) return; // Blob missing — TTS is already playing as fallback.
+            tts.cancel();
+            state.isSpeaking = true;
+            state.playingButtonId = btn.id;
+            updateVisuals();
+            currentPlaybackSource = await createAndPlayAudio(blob, {
+                onEnded: () => { currentPlaybackSource = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); },
+                onError: () => { currentPlaybackSource = null; state.isSpeaking = false; state.playingButtonId = null; updateVisuals(); }
+            });
         }
 
         async function toggleRecording(btnId, phraseIndex, btnElement) {
