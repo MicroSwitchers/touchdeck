@@ -993,6 +993,9 @@
                 // Tracks which pointer IDs are currently held on this button (release mode).
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
+                
+                // Safety timeout to ensure button never gets stuck visually pressed
+                let visualStateTimeout = null;
 
                 // ── Touch robustness state (per-button closure) ────────────────────────
                 // 'idle'      — no touch in progress
@@ -1039,12 +1042,21 @@
                     touchState      = 'valid';
                     state.activeButtonId = btn.id;
                     updateVisuals();
+                    // Safety timeout: force clear visual state after 1 second if it gets stuck
+                    if (visualStateTimeout) clearTimeout(visualStateTimeout);
+                    visualStateTimeout = setTimeout(() => {
+                        if (state.activeButtonId === btn.id) {
+                            state.activeButtonId = null;
+                            updateVisuals();
+                        }
+                    }, 1000);
                 }, { passive: true });
 
                 btnEl.addEventListener('touchmove', (e) => {
                     if (touchState !== 'valid') return;
                     // Cancel if additional fingers touch down during the gesture
                     if (e.touches.length !== 1) {
+                        if (visualStateTimeout) { clearTimeout(visualStateTimeout); visualStateTimeout = null; }
                         trackedTouchId = null;
                         touchState = 'cancelled';
                         if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
@@ -1054,6 +1066,7 @@
                     if (!t) return;
                     // Cancel if finger moves too much (likely a brush or swipe)
                     if (Math.hypot(t.clientX - touchOriginX, t.clientY - touchOriginY) > SLOP_PX) {
+                        if (visualStateTimeout) { clearTimeout(visualStateTimeout); visualStateTimeout = null; }
                         trackedTouchId = null;
                         touchState = 'cancelled';
                         if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
@@ -1061,6 +1074,7 @@
                 }, { passive: true });
 
                 btnEl.addEventListener('touchcancel', () => {
+                    if (visualStateTimeout) { clearTimeout(visualStateTimeout); visualStateTimeout = null; }
                     trackedTouchId = null;
                     touchState = 'cancelled';
                     touchStartTime = 0;
@@ -1068,6 +1082,16 @@
                 });
 
                 btnEl.addEventListener('touchend', (e) => {
+                    // Clear safety timeout
+                    if (visualStateTimeout) {
+                        clearTimeout(visualStateTimeout);
+                        visualStateTimeout = null;
+                    }
+                    // Clear visual pressed state immediately when touch ends
+                    if (state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
                     // If the touch that ended was our tracked touch, we're ready to activate (via click)
                     if (touchState === 'valid') {
                         const endedTouch = Array.from(e.changedTouches).find(ct => ct.identifier === trackedTouchId);
@@ -1112,16 +1136,32 @@
                         // Visual press feedback for mouse / stylus (touch handled above).
                         state.activeButtonId = btn.id;
                         updateVisuals();
+                        // Safety timeout for mouse/stylus
+                        if (visualStateTimeout) clearTimeout(visualStateTimeout);
+                        visualStateTimeout = setTimeout(() => {
+                            if (state.activeButtonId === btn.id) {
+                                state.activeButtonId = null;
+                                updateVisuals();
+                            }
+                        }, 1000);
                     }
                 });
 
-                btnEl.addEventListener('pointercancel', () => {
-                    heldPointers.clear();
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                btnEl.addEventListener('pointerup', (e) => {
+                    // Clear visual state when pointer is released (mouse/stylus)
+                    if (!state.isPositioningMode && e.pointerType !== 'touch') {
+                        if (visualStateTimeout) { clearTimeout(visualStateTimeout); visualStateTimeout = null; }
+                        if (state.activeButtonId === btn.id) {
+                            state.activeButtonId = null;
+                            updateVisuals();
+                        }
+                    }
                 });
 
                 btnEl.addEventListener('pointercancel', (e) => {
-                    if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
+                    if (visualStateTimeout) { clearTimeout(visualStateTimeout); visualStateTimeout = null; }
+                    heldPointers.delete(e.pointerId);
+                    if (state.activeButtonId === btn.id) {
                         state.activeButtonId = null;
                         updateVisuals();
                     }
