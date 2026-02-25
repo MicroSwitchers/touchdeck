@@ -993,6 +993,9 @@
                 // Tracks which pointer IDs are currently held on this button (release mode).
                 // Each button gets its own Set so multi-touch across buttons works correctly.
                 const heldPointers = new Set();
+                
+                // Track number of active touches on this button to handle multi-finger presses
+                let activeTouchCount = 0;
 
                 // ── Activation via click ───────────────────────────────────────────────
                 // `click` is the only event that reliably grants iOS Safari permission
@@ -1010,20 +1013,31 @@
                     // will be suppressed on iOS and TTS will break.
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
+                    activeTouchCount++;
                     state.activeButtonId = btn.id;
                     updateVisuals();
                 }, { passive: true });
 
-                btnEl.addEventListener('touchend', () => {
-                    // Clear visual press feedback when touch ends
-                    if (state.activeButtonId === btn.id) { 
-                        state.activeButtonId = null; 
-                        updateVisuals(); 
+                btnEl.addEventListener('touchend', (e) => {
+                    // Only clear visual press feedback when ALL touches have ended
+                    if (activeTouchCount > 0) activeTouchCount--;
+                    if (activeTouchCount === 0 && state.activeButtonId === btn.id) {
+                        // Small delay to allow click event to fire first
+                        setTimeout(() => {
+                            if (state.activeButtonId === btn.id) {
+                                state.activeButtonId = null;
+                                updateVisuals();
+                            }
+                        }, 50);
                     }
                 }, { passive: true });
 
                 btnEl.addEventListener('touchcancel', () => {
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                    if (activeTouchCount > 0) activeTouchCount--;
+                    if (activeTouchCount === 0 && state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
                 });
 
                 // Primary activation handler — works for touch, mouse, and stylus.
