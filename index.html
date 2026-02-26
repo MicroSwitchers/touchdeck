@@ -990,64 +990,90 @@
                     saveState();
                 }, { passive: false });
 
-                // Tracks which pointer IDs are currently held on this button (release mode).
-                // Each button gets its own Set so multi-touch across buttons works correctly.
-                const heldPointers = new Set();
-
-                // ── Activation via click ───────────────────────────────────────────────
-                // `click` is the only event that reliably grants iOS Safari permission
-                // to call speechSynthesis.speak(). It fires after: touchend (touch
-                // devices), mouseup (mouse), or Enter (keyboard). We do NOT call
-                // e.preventDefault() on touchstart so the browser still generates the
-                // click event. Instead, touch-action:manipulation on the element CSS
-                // eliminates the 300 ms double-tap delay without JS intervention.
-                //
-                // All activation modes (press / release / screen) use click so TTS
-                // always originates from a click-class gesture.
+                let activatedOnPress = false;
 
                 btnEl.addEventListener('touchstart', (e) => {
-                    // Visual press feedback only — do NOT preventDefault here or click
-                    // will be suppressed on iOS and TTS will break.
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
+                    
+                    activatedOnPress = false;
                     state.activeButtonId = btn.id;
                     updateVisuals();
+
+                    if (state.activationMode === 'press') {
+                        activatedOnPress = true;
+                        activateSwitch(btn.id, false);
+                    }
                 }, { passive: true });
 
+                btnEl.addEventListener('touchend', (e) => {
+                    if (state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                });
+
                 btnEl.addEventListener('touchcancel', () => {
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
+                    if (state.activeButtonId === btn.id) { 
+                        state.activeButtonId = null; 
+                        updateVisuals(); 
+                    }
                 });
 
-                // Primary activation handler — works for touch, mouse, and stylus.
-                btnEl.addEventListener('click', (e) => {
-                    if (state.isPositioningMode || state.showSettings) return;
-                    if (state.touchTarget !== 'button') return;
-                    activateSwitch(btn.id);
-                });
-
-                // ── Pointer events: positioning mode drag only ────────────────────────
                 btnEl.addEventListener('pointerdown', (e) => {
                     if (state.isPositioningMode) {
                         e.stopPropagation();
                         if (e.pointerType !== 'mouse') e.preventDefault();
                         initGesture(e, btn.id);
                     } else if (!state.showSettings && e.pointerType !== 'touch') {
-                        // Visual press feedback for mouse / stylus (touch handled above).
+                        if (state.touchTarget !== 'button') return;
+                        if (e.button !== 0) return; // Only left click
+
+                        activatedOnPress = false;
                         state.activeButtonId = btn.id;
                         updateVisuals();
+
+                        if (state.activationMode === 'press') {
+                            activatedOnPress = true;
+                            activateSwitch(btn.id, false);
+                        }
                     }
                 });
 
-                btnEl.addEventListener('pointercancel', () => {
-                    heldPointers.clear();
-                    if (state.activeButtonId === btn.id) { state.activeButtonId = null; updateVisuals(); }
-                });
-
-                btnEl.addEventListener('pointercancel', (e) => {
-                    if (heldPointers.delete(e.pointerId) && state.activeButtonId === btn.id) {
+                btnEl.addEventListener('pointerup', (e) => {
+                    if (e.pointerType !== 'touch' && state.activeButtonId === btn.id) {
                         state.activeButtonId = null;
                         updateVisuals();
                     }
+                });
+
+                btnEl.addEventListener('pointerleave', (e) => {
+                    if (e.pointerType !== 'touch' && state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                });
+
+                btnEl.addEventListener('pointercancel', (e) => {
+                    if (e.pointerType !== 'touch' && state.activeButtonId === btn.id) {
+                        state.activeButtonId = null;
+                        updateVisuals();
+                    }
+                });
+
+                btnEl.addEventListener('click', (e) => {
+                    if (state.isPositioningMode || state.showSettings) return;
+                    if (state.touchTarget !== 'button') return;
+                    
+                    const isKeyboard = e.detail === 0;
+                    
+                    if (activatedOnPress && !isKeyboard) {
+                        activatedOnPress = false;
+                        return;
+                    }
+                    
+                    activatedOnPress = false;
+                    activateSwitch(btn.id, isKeyboard);
                 });
 
                 rotatable.appendChild(btnEl);
@@ -1326,7 +1352,7 @@
         })();
 
         // ─── BUTTON ACTIVATION ────────────────────────────────────────────────────
-        function activateSwitch(btnId) {
+        function activateSwitch(btnId, autoClearVisual = true) {
             if (state.isPositioningMode || state.showSettings || state.inDebounce) return;
             if (state.debounceTime > 0) {
                 state.inDebounce = true;
@@ -1340,9 +1366,16 @@
 
             if (state.hapticsEnabled && navigator.vibrate) try { navigator.vibrate(50); } catch(e) {}
 
-            state.activeButtonId = btnId;
-            updateVisuals();
-            setTimeout(() => { state.activeButtonId = null; updateVisuals(); }, 200);
+            if (autoClearVisual) {
+                state.activeButtonId = btnId;
+                updateVisuals();
+                setTimeout(() => { 
+                    if (state.activeButtonId === btnId) {
+                        state.activeButtonId = null; 
+                        updateVisuals(); 
+                    }
+                }, 200);
+            }
 
             const btn = state.buttons.find(b => b.id === btnId);
             if (!btn) return;
