@@ -1627,18 +1627,18 @@
                             rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-emerald-300 hover:brightness-110';
                             rec.style.cssText = 'background:rgba(16,185,129,0.15);border-color:rgba(52,211,153,0.4)';
                             rec.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current pointer-events-none"></i>`;
-                            rec.onclick = (e) => { e.preventDefault(); e.stopPropagation(); playPreview(editBtn.id, idx); };
+                            rec.onclick = () => { playPreview(editBtn.id, idx); };
                             const del = document.createElement('button');
                             del.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-red-400 hover:brightness-110';
                             del.style.cssText = 'background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.25)';
                             del.innerHTML = `<i data-lucide="trash" class="w-4 h-4 pointer-events-none"></i>`;
-                            del.onclick = (e) => { e.preventDefault(); e.stopPropagation(); deleteRecording(editBtn.id, idx); };
+                            del.onclick = () => { deleteRecording(editBtn.id, idx); };
                             w.appendChild(rec); w.appendChild(del);
                         } else {
                             rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-zinc-400 hover:text-pink-300 hover:border-pink-400/40';
                             rec.style.cssText = 'background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.10)';
                             rec.innerHTML = `<i data-lucide="mic" class="w-4 h-4 pointer-events-none"></i>`;
-                            rec.onclick = (e) => { e.preventDefault(); e.stopPropagation(); toggleRecording(editBtn.id, idx, e.currentTarget); };
+                            rec.onclick = (e) => { toggleRecording(editBtn.id, idx, e.currentTarget); };
                             w.appendChild(rec);
                         }
                         pl.appendChild(w);
