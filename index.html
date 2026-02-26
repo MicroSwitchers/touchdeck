@@ -990,30 +990,63 @@
                     saveState();
                 }, { passive: false });
 
-                let activatedOnPress = false;
+                // Track which touch IDs have already triggered activation on this button
+                // so we never double-fire for the same finger, even with multi-touch.
+                const pressedTouchIds = new Set();
+                let mouseActivatedOnPress = false;
 
                 btnEl.addEventListener('touchstart', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
-                    
-                    activatedOnPress = false;
+
+                    // Visual press feedback — always show immediately
                     state.activeButtonId = btn.id;
                     updateVisuals();
 
                     if (state.activationMode === 'press') {
-                        activatedOnPress = true;
-                        activateSwitch(btn.id, false);
+                        // Only activate for NEW touches that haven't already fired
+                        for (let i = 0; i < e.changedTouches.length; i++) {
+                            const tid = e.changedTouches[i].identifier;
+                            if (!pressedTouchIds.has(tid)) {
+                                pressedTouchIds.add(tid);
+                                activateSwitch(btn.id, false);
+                            }
+                        }
                     }
                 }, { passive: true });
 
                 btnEl.addEventListener('touchend', (e) => {
+                    // Clean up touch IDs that have lifted
+                    for (let i = 0; i < e.changedTouches.length; i++) {
+                        pressedTouchIds.delete(e.changedTouches[i].identifier);
+                    }
+                    // Only clear the visual if ALL touches on this button are gone
                     if (state.activeButtonId === btn.id) {
-                        state.activeButtonId = null;
-                        updateVisuals();
+                        // Check if any touch is still on this button
+                        let stillTouching = false;
+                        if (e.touches) {
+                            for (let i = 0; i < e.touches.length; i++) {
+                                const el = document.elementFromPoint(e.touches[i].clientX, e.touches[i].clientY);
+                                if (el && (el === btnEl || btnEl.contains(el))) {
+                                    stillTouching = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!stillTouching) {
+                            state.activeButtonId = null;
+                            updateVisuals();
+                        }
                     }
                 });
 
-                btnEl.addEventListener('touchcancel', () => {
+                btnEl.addEventListener('touchcancel', (e) => {
+                    // Clean up touch IDs
+                    if (e.changedTouches) {
+                        for (let i = 0; i < e.changedTouches.length; i++) {
+                            pressedTouchIds.delete(e.changedTouches[i].identifier);
+                        }
+                    }
                     if (state.activeButtonId === btn.id) { 
                         state.activeButtonId = null; 
                         updateVisuals(); 
@@ -1026,15 +1059,16 @@
                         if (e.pointerType !== 'mouse') e.preventDefault();
                         initGesture(e, btn.id);
                     } else if (!state.showSettings && e.pointerType !== 'touch') {
+                        // Mouse / pen only — touch is handled by touchstart above
                         if (state.touchTarget !== 'button') return;
                         if (e.button !== 0) return; // Only left click
 
-                        activatedOnPress = false;
+                        mouseActivatedOnPress = false;
                         state.activeButtonId = btn.id;
                         updateVisuals();
 
                         if (state.activationMode === 'press') {
-                            activatedOnPress = true;
+                            mouseActivatedOnPress = true;
                             activateSwitch(btn.id, false);
                         }
                     }
@@ -1061,18 +1095,38 @@
                     }
                 });
 
+                // click handler: used for "release" mode and keyboard.
+                // For touch in "press" mode, the touchstart already fired — we must
+                // NOT fire again. We detect this by checking pressedTouchIds size:
+                // if it was a touch event, the ID was tracked (even if already removed
+                // by touchend that fired just before click). We use a flag set by
+                // touchstart and cleared after click consumes it.
+                let touchDidPress = false;
+                btnEl.addEventListener('touchstart', () => {
+                    if (state.activationMode === 'press') touchDidPress = true;
+                }, { passive: true });
+
                 btnEl.addEventListener('click', (e) => {
                     if (state.isPositioningMode || state.showSettings) return;
                     if (state.touchTarget !== 'button') return;
                     
                     const isKeyboard = e.detail === 0;
                     
-                    if (activatedOnPress && !isKeyboard) {
-                        activatedOnPress = false;
+                    // Mouse "press" mode: already fired on pointerdown
+                    if (mouseActivatedOnPress && !isKeyboard) {
+                        mouseActivatedOnPress = false;
                         return;
                     }
+                    mouseActivatedOnPress = false;
                     
-                    activatedOnPress = false;
+                    // Touch "press" mode: already fired on touchstart
+                    if (touchDidPress && !isKeyboard) {
+                        touchDidPress = false;
+                        return;
+                    }
+                    touchDidPress = false;
+                    
+                    // "release" mode or keyboard: fire now
                     activateSwitch(btn.id, isKeyboard);
                 });
 
