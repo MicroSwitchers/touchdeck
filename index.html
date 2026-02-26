@@ -44,12 +44,19 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            touch-action: none;
             user-select: none;
             -webkit-user-select: none;
             overflow: hidden;
             background-color: #09090b; /* zinc-950 */
             overscroll-behavior: none;
+        }
+
+        /* Disable default touch handling on the app canvas only.
+           Settings and confirm modals are siblings of #app-container
+           and need default touch-action so buttons receive click events
+           from touch on iOS. */
+        #app-container {
+            touch-action: none;
         }
 
         /* ── Canvas ambient gradient ──────────────────────────────────────── */
@@ -551,7 +558,10 @@
             try {
                 const ctx = initAudioCtx();
                 if (!ctx) throw new Error('No AudioContext available');
-                if (ctx.state === 'suspended') await ctx.resume();
+                // Do NOT await ctx.resume() here — callers already call
+                // initAudioCtx() synchronously inside the user gesture.
+                // Awaiting resume after an IndexedDB await would hang on
+                // iOS because the gesture has already expired.
                 const arrayBuffer = await blobToArrayBuffer(blob);
                 const audioBuffer = await new Promise((resolve, reject) => {
                     ctx.decodeAudioData(arrayBuffer, resolve, reject);
