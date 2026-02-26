@@ -44,19 +44,12 @@
     <style>
         body {
             font-family: 'Inter', sans-serif;
+            touch-action: none;
             user-select: none;
             -webkit-user-select: none;
             overflow: hidden;
             background-color: #09090b; /* zinc-950 */
             overscroll-behavior: none;
-        }
-
-        /* Disable default touch handling on the app canvas only.
-           Settings and confirm modals are siblings of #app-container
-           and need default touch-action so buttons receive click events
-           from touch on iOS. */
-        #app-container {
-            touch-action: none;
         }
 
         /* ── Canvas ambient gradient ──────────────────────────────────────── */
@@ -558,10 +551,7 @@
             try {
                 const ctx = initAudioCtx();
                 if (!ctx) throw new Error('No AudioContext available');
-                // Do NOT await ctx.resume() here — callers already call
-                // initAudioCtx() synchronously inside the user gesture.
-                // Awaiting resume after an IndexedDB await would hang on
-                // iOS because the gesture has already expired.
+                if (ctx.state === 'suspended') await ctx.resume();
                 const arrayBuffer = await blobToArrayBuffer(blob);
                 const audioBuffer = await new Promise((resolve, reject) => {
                     ctx.decodeAudioData(arrayBuffer, resolve, reject);
@@ -1475,7 +1465,7 @@
                 mediaRecorder.start(100);
                 state.isRecording = true;
                 state.mediaRecorder = mediaRecorder;
-                btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current"></i>`;
+                btnElement.innerHTML = `<i data-lucide="square" class="w-4 h-4 fill-current pointer-events-none"></i>`;
                 btnElement.classList.add('bg-red-600', 'text-white', 'recording-pulse');
                 safeIcons();
             } catch (err) {
@@ -1636,19 +1626,19 @@
                         if(has) {
                             rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-emerald-300 hover:brightness-110';
                             rec.style.cssText = 'background:rgba(16,185,129,0.15);border-color:rgba(52,211,153,0.4)';
-                            rec.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current"></i>`;
-                            rec.onclick = () => playPreview(editBtn.id, idx);
+                            rec.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current pointer-events-none"></i>`;
+                            rec.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); playPreview(editBtn.id, idx); };
                             const del = document.createElement('button');
                             del.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-red-400 hover:brightness-110';
                             del.style.cssText = 'background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.25)';
-                            del.innerHTML = `<i data-lucide="trash" class="w-4 h-4"></i>`;
-                            del.onclick = () => deleteRecording(editBtn.id, idx);
+                            del.innerHTML = `<i data-lucide="trash" class="w-4 h-4 pointer-events-none"></i>`;
+                            del.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); deleteRecording(editBtn.id, idx); };
                             w.appendChild(rec); w.appendChild(del);
                         } else {
                             rec.className = 'p-3 rounded-xl border flex items-center justify-center transition-all shrink-0 text-zinc-400 hover:text-pink-300 hover:border-pink-400/40';
                             rec.style.cssText = 'background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.10)';
-                            rec.innerHTML = `<i data-lucide="mic" class="w-4 h-4"></i>`;
-                            rec.onclick = (e) => toggleRecording(editBtn.id, idx, e.currentTarget);
+                            rec.innerHTML = `<i data-lucide="mic" class="w-4 h-4 pointer-events-none"></i>`;
+                            rec.onpointerdown = (e) => { e.preventDefault(); e.stopPropagation(); toggleRecording(editBtn.id, idx, e.currentTarget); };
                             w.appendChild(rec);
                         }
                         pl.appendChild(w);
